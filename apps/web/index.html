@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>WorkPilot Console</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #172126;
+        --muted: #66737a;
+        --line: #d9e1df;
+        --paper: #f5f7f3;
+        --card: #ffffff;
+        --accent: #146c5a;
+        --accent-soft: #dff1ea;
+        --warn: #b36316;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: linear-gradient(145deg, #edf3ed 0%, #f7f4ed 70%);
+        color: var(--ink);
+        font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      header { padding: 28px 32px 18px; display: flex; align-items: end; justify-content: space-between; }
+      h1 { margin: 0; font-size: 28px; letter-spacing: -.04em; }
+      .sub { color: var(--muted); margin-top: 3px; }
+      .badge { background: var(--accent-soft); color: var(--accent); border-radius: 99px; padding: 6px 11px; font-weight: 700; }
+      main { display: grid; grid-template-columns: minmax(260px, .8fr) minmax(360px, 1.4fr) minmax(300px, 1fr); gap: 14px; padding: 0 32px 32px; min-height: calc(100vh - 92px); }
+      section { background: color-mix(in srgb, var(--card) 94%, transparent); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: 0 12px 28px rgba(44,64,54,.06); overflow: auto; }
+      h2 { margin: 0 0 14px; font-size: 13px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
+      textarea, input { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 11px; background: #fff; font: inherit; }
+      textarea { min-height: 120px; resize: vertical; }
+      label { display: block; color: var(--muted); margin: 13px 0 6px; }
+      button { border: 0; border-radius: 9px; padding: 9px 13px; background: var(--accent); color: white; font-weight: 700; cursor: pointer; }
+      button.secondary { color: var(--ink); background: #e9eeeb; }
+      button.danger { background: #a63f37; }
+      button:disabled { opacity: .45; cursor: not-allowed; }
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 13px; }
+      .step, .event, .approval, .artifact { border-left: 3px solid var(--line); padding: 8px 10px; margin: 8px 0; background: #fafbf9; border-radius: 0 8px 8px 0; }
+      .step.SUCCEEDED { border-color: var(--accent); }
+      .step.WAITING_APPROVAL, .approval { border-color: var(--warn); }
+      .meta { color: var(--muted); font-size: 12px; }
+      .empty { color: var(--muted); padding: 24px 4px; }
+      pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: #f2f4f1; padding: 10px; border-radius: 8px; }
+      #notice { min-height: 24px; color: var(--warn); margin-top: 10px; }
+      @media (max-width: 980px) { main { grid-template-columns: 1fr; } section { min-height: 240px; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div><h1>WorkPilot</h1><div class="sub">可审批、可验证、可回放的办公任务执行台</div></div>
+      <div class="badge" id="status">尚未创建任务</div>
+    </header>
+    <main>
+      <section>
+        <h2>任务与控制</h2>
+        <label for="goal">任务目标</label>
+        <textarea id="goal">收集本周项目进展，生成周报，为缺失事项创建跟进任务，并在审批后发送邮件。</textarea>
+        <label for="recipient">收件人</label>
+        <input id="recipient" type="email" value="team@example.com" />
+        <div class="actions">
+          <button id="create">创建任务</button>
+          <button id="run" class="secondary" disabled>继续执行</button>
+          <button id="pause" class="secondary" disabled>暂停</button>
+          <button id="resume" class="secondary" disabled>恢复</button>
+          <button id="cancel" class="danger" disabled>取消</button>
+        </div>
+        <div id="notice"></div>
+        <div id="summary" class="empty">任务创建后，这里会显示预算与执行摘要。</div>
+      </section>
+      <section>
+        <h2>计划与执行时间线</h2>
+        <div id="plan" class="empty">等待合法任务计划。</div>
+        <h2 style="margin-top:24px">审计事件</h2>
+        <div id="timeline" class="empty">尚无事件。</div>
+      </section>
+      <section>
+        <h2>当前审批与证据</h2>
+        <div id="approval" class="empty">当前无需审批。</div>
+        <h2 style="margin-top:24px">验证产物</h2>
+        <div id="artifacts" class="empty">执行后显示不可变证据引用。</div>
+      </section>
+    </main>
+    <script>
+      const headers = {"Content-Type": "application/json", "X-Tenant-ID": "demo", "X-User-ID": "console-user"};
+      let task = null;
+      const $ = id => document.getElementById(id);
+      async function request(path, options = {}) {
+        const response = await fetch(path, {headers, ...options});
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+        return body;
+      }
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+      }
+      function render() {
+        if (!task) return;
+        $('status').textContent = task.status;
+        $('summary').innerHTML = `<strong>${escapeHtml(task.goal)}</strong><div class="meta">ID ${task.id} · 计划 v${task.plan?.version || 0} · ${task.ledger.length} 次动作 · ${task.checkpoints.length} 个检查点</div>`;
+        $('plan').innerHTML = Object.values(task.steps).map(item => `<div class="step ${item.status}"><strong>${escapeHtml(item.step.description)}</strong><div class="meta">${item.step.capability} · ${item.step.risk} · ${item.status}</div></div>`).join('');
+        $('timeline').innerHTML = task.events.slice().reverse().map(event => `<div class="event"><strong>${event.sequence}. ${escapeHtml(event.message)}</strong><div class="meta">${event.type}${event.step_id ? ` · ${event.step_id}` : ''}</div></div>`).join('');
+        const pending = task.approvals.find(item => item.status === 'PENDING');
+        $('approval').innerHTML = pending ? `<div class="approval"><strong>${escapeHtml(pending.parameter_preview.summary)}</strong><pre>${escapeHtml(JSON.stringify(pending.parameter_preview, null, 2))}</pre><div class="meta">参数哈希 ${pending.parameter_hash}</div><div class="actions"><button onclick="approve('${pending.step_id}','${pending.parameter_hash}')">批准并继续</button><button class="danger" onclick="rejectApproval('${pending.step_id}')">拒绝</button></div></div>` : '<div class="empty">当前无需审批。</div>';
+        $('artifacts').innerHTML = task.artifacts.length ? task.artifacts.slice().reverse().map(item => `<div class="artifact"><strong>${item.step_id} · ${item.type}</strong><div class="meta">artifact://${item.id}</div></div>`).join('') : '<div class="empty">执行后显示不可变证据引用。</div>';
+        $('run').disabled = !['PLAN_READY','RUNNING'].includes(task.status);
+        $('pause').disabled = !['PLAN_READY','RUNNING','WAITING_APPROVAL'].includes(task.status);
+        $('resume').disabled = task.status !== 'PAUSED';
+        $('cancel').disabled = ['SUCCEEDED','FAILED','CANCELLED'].includes(task.status);
+      }
+      async function act(path, body) {
+        try {
+          $('notice').textContent = '';
+          task = await request(`/v1/tasks/${task.id}/${path}`, {method:'POST', body: body ? JSON.stringify(body) : undefined});
+          render();
+        } catch (error) { $('notice').textContent = error.message; }
+      }
+      $('create').onclick = async () => {
+        try {
+          $('notice').textContent = '';
+          task = await request('/v1/tasks', {method:'POST', body:JSON.stringify({goal:$('goal').value, recipient:$('recipient').value})});
+          render();
+        } catch (error) { $('notice').textContent = error.message; }
+      };
+      $('run').onclick = () => act('run');
+      $('pause').onclick = () => act('pause');
+      $('resume').onclick = () => act('resume');
+      $('cancel').onclick = () => act('cancel');
+      window.approve = async (stepId, hash) => { await act('approve', {step_id:stepId, parameter_hash:hash}); if (task.status === 'RUNNING') await act('run'); };
+      window.rejectApproval = stepId => act('reject', {step_id:stepId, reason:'用户在工作台拒绝该外部写入'});
+    </script>
+  </body>
+</html>
