@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --locked
+      - run: uv run ruff check workpilot tests apps alembic
+      - run: uv run mypy workpilot
+      - run: uv run pytest --cov=workpilot --cov-report=term-missing --cov-fail-under=85
+      - run: uv run alembic upgrade head
+        env:
+          WORKPILOT_DATABASE_URL: sqlite:///./migration-check.db

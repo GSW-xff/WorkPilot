@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from threading import RLock
+from typing import Protocol
 
 from workpilot.models import TaskRun, utc_now
 
@@ -9,7 +10,23 @@ class TaskNotFoundError(KeyError):
     pass
 
 
-class InMemoryTaskRepository:
+class ConcurrentUpdateError(RuntimeError):
+    pass
+
+
+class TaskRepository(Protocol):
+    def add(self, task: TaskRun) -> TaskRun: ...
+
+    def get(self, tenant_id: str, task_id: str) -> TaskRun: ...
+
+    def save(self, task: TaskRun, expected_version: int | None = None) -> TaskRun: ...
+
+    def list(self, tenant_id: str) -> list[TaskRun]: ...
+
+    def close(self) -> None: ...
+
+
+class InMemoryTaskRepository(TaskRepository):
     """Tenant-aware repository with copy-on-read semantics for the local MVP."""
 
     def __init__(self) -> None:
@@ -38,7 +55,7 @@ class InMemoryTaskRepository:
             if current is None:
                 raise TaskNotFoundError(task.id)
             if expected_version is not None and current.version != expected_version:
-                raise RuntimeError("task was updated concurrently")
+                raise ConcurrentUpdateError("task was updated concurrently")
             stored = task.model_copy(
                 deep=True,
                 update={"version": current.version + 1, "updated_at": utc_now()},
@@ -54,3 +71,5 @@ class InMemoryTaskRepository:
                 if stored_tenant == tenant_id
             ]
 
+    def close(self) -> None:
+        return None

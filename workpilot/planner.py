@@ -70,7 +70,11 @@ class DemoPlanner:
                         "body": "本周项目周报已生成，请查看审计产物中的完整正文。",
                     },
                     expected_effects=["外部收件人收到邮件"],
-                    verification=[VerificationRule(type="remote_query", rule="message exists in sent")],
+                    verification=[
+                        VerificationRule(
+                            type="remote_query", rule="message exists in sent"
+                        )
+                    ],
                 ),
             ],
         )

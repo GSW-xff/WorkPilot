@@ -7,7 +7,12 @@ from workpilot.models import PlanStep, RiskLevel, TaskPlan, VerificationRule
 class DagValidationTest(unittest.TestCase):
     def test_topological_order_respects_dependencies(self) -> None:
         steps = [
-            PlanStep(id="publish", description="publish", capability="mail.send", depends_on=["draft"]),
+            PlanStep(
+                id="publish",
+                description="publish",
+                capability="mail.send",
+                depends_on=["draft"],
+            ),
             PlanStep(id="draft", description="draft", capability="report.compose"),
         ]
         self.assertEqual(["draft", "publish"], topological_order(steps))
@@ -67,4 +72,3 @@ class DagValidationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

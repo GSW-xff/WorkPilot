@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from workpilot.models import TaskStatus
 
-
 TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.CREATED: {TaskStatus.PLANNING, TaskStatus.CANCELLED},
     TaskStatus.PLANNING: {TaskStatus.PLAN_READY, TaskStatus.FAILED, TaskStatus.CANCELLED},

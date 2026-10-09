@@ -21,10 +21,9 @@ from workpilot.models import (
 )
 from workpilot.planner import DemoPlanner
 from workpilot.policy import PolicyEngine
-from workpilot.repository import InMemoryTaskRepository
+from workpilot.repository import TaskRepository
 from workpilot.security import idempotency_key, parameter_hash, redact
 from workpilot.state_machine import ensure_transition
-
 
 TERMINAL_STATUSES = {TaskStatus.CANCELLED, TaskStatus.FAILED, TaskStatus.SUCCEEDED}
 
@@ -32,7 +31,7 @@ TERMINAL_STATUSES = {TaskStatus.CANCELLED, TaskStatus.FAILED, TaskStatus.SUCCEED
 class WorkPilotService:
     def __init__(
         self,
-        repository: InMemoryTaskRepository,
+        repository: TaskRepository,
         registry: CapabilityRegistry,
         planner: DemoPlanner | None = None,
         policy: PolicyEngine | None = None,
@@ -87,7 +86,10 @@ class WorkPilotService:
             step_run = task.steps[step_id]
             if step_run.status is StepStatus.SUCCEEDED:
                 continue
-            if any(task.steps[item].status is not StepStatus.SUCCEEDED for item in step_run.step.depends_on):
+            if any(
+                task.steps[item].status is not StepStatus.SUCCEEDED
+                for item in step_run.step.depends_on
+            ):
                 continue
 
             step = step_run.step
@@ -110,7 +112,9 @@ class WorkPilotService:
             )
             params_hash = parameter_hash(action.parameters)
             adapter = self.registry.adapter_for(step.capability)
-            if decision.requires_approval and not self._has_valid_approval(task, step.id, params_hash):
+            if decision.requires_approval and not self._has_valid_approval(
+                task, step.id, params_hash
+            ):
                 preview = await adapter.preview(action)
                 self._ensure_pending_approval(task, action, preview.human_summary, params_hash)
                 step_run.status = StepStatus.WAITING_APPROVAL
@@ -233,7 +237,12 @@ class WorkPilotService:
     def pause(self, tenant_id: str, task_id: str) -> TaskRun:
         task = self.repository.get(tenant_id, task_id)
         version = task.version
-        if task.status not in {TaskStatus.PLAN_READY, TaskStatus.RUNNING, TaskStatus.WAITING_APPROVAL}:
+        pausable = {
+            TaskStatus.PLAN_READY,
+            TaskStatus.RUNNING,
+            TaskStatus.WAITING_APPROVAL,
+        }
+        if task.status not in pausable:
             raise ValueError(f"task cannot pause from {task.status.value}")
         task.paused_from = task.status
         self._transition(task, TaskStatus.PAUSED, "task.paused", "任务已安全暂停")
@@ -328,6 +337,8 @@ class WorkPilotService:
 
     @staticmethod
     def _has_valid_approval(task: TaskRun, step_id: str, params_hash: str) -> bool:
+        if task.plan is None:
+            return False
         return any(
             item.step_id == step_id
             and item.parameter_hash == params_hash
@@ -343,6 +354,8 @@ class WorkPilotService:
         summary: str,
         params_hash: str,
     ) -> Approval:
+        if task.plan is None:
+            raise ValueError("task has no validated plan")
         existing = next(
             (
                 item

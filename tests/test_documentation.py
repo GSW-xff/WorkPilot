@@ -1,10 +1,10 @@
-from pathlib import Path
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PLAN = ROOT / "docs" / "mvp-implementation-plan.md"
 V2_PLAN = ROOT / "docs" / "v2-design-plan.md"
+PERSISTENCE = ROOT / "docs" / "persistence.md"
 
 
 class MvpPlanDocumentationTest(unittest.TestCase):
@@ -78,6 +78,11 @@ class V2PlanDocumentationTest(unittest.TestCase):
         self.assertIn("以下均为 V2 目标，不是当前结果", self.content)
         self.assertIn("数字必须在 V2 完成后替换为真实结果", self.content)
 
+    def test_v2_plan_reports_implementation_status_honestly(self) -> None:
+        self.assertIn("V2 第一阶段已经实现", self.content)
+        self.assertIn("Temporal、ModelGateway、真实连接器", self.content)
+        self.assertIn("不能作为当前能力对外描述", self.content)
+
     def test_v2_plan_preserves_core_safety_invariants(self) -> None:
         invariants = [
             "R2 无审批执行数、R3 执行数、重复副作用数均为 0",
@@ -89,6 +94,24 @@ class V2PlanDocumentationTest(unittest.TestCase):
         for invariant in invariants:
             with self.subTest(invariant=invariant):
                 self.assertIn(invariant, self.content)
+
+
+class PersistenceDocumentationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.content = PERSISTENCE.read_text(encoding="utf-8")
+
+    def test_persistence_documentation_covers_operations_and_boundaries(self) -> None:
+        required = [
+            "## 一致性边界",
+            "## 租户隔离",
+            "## 本地运行",
+            "## 恢复测试",
+            "Temporal 控制流恢复仍属于 V2 下一阶段",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
 
 
 if __name__ == "__main__":

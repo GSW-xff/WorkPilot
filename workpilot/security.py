@@ -5,7 +5,6 @@ import json
 import re
 from typing import Any
 
-
 SECRET_KEYS = {"authorization", "credential", "password", "secret", "token"}
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
@@ -9,9 +10,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from workpilot.config import Settings
 from workpilot.connectors.base import CapabilityRegistry
 from workpilot.connectors.fake import FakeEnterpriseAdapter
-from workpilot.repository import InMemoryTaskRepository, TaskNotFoundError
+from workpilot.db.repository import SQLAlchemyTaskRepository, create_database_engine
+from workpilot.repository import InMemoryTaskRepository, TaskNotFoundError, TaskRepository
 from workpilot.runtime import WorkPilotService
 
 
@@ -42,20 +45,45 @@ def tenant_context(
     return x_tenant_id, x_user_id
 
 
-def build_service() -> tuple[WorkPilotService, FakeEnterpriseAdapter]:
+def build_service(
+    repository: TaskRepository | None = None,
+    settings: Settings | None = None,
+) -> tuple[WorkPilotService, FakeEnterpriseAdapter]:
+    settings = settings or Settings.from_env()
     adapter = FakeEnterpriseAdapter()
     service = WorkPilotService(
-        repository=InMemoryTaskRepository(),
+        repository=repository or build_repository(settings),
         registry=CapabilityRegistry([adapter]),
+        max_steps=settings.max_steps,
+        allowed_recipient_domains=set(settings.allowed_recipient_domains),
     )
     return service, adapter
 
 
-def create_app() -> FastAPI:
+def build_repository(settings: Settings) -> TaskRepository:
+    if not settings.database_url:
+        return InMemoryTaskRepository()
+    engine = create_database_engine(settings.database_url)
+    return SQLAlchemyTaskRepository(engine, create_schema=settings.auto_create_schema)
+
+
+def create_app(
+    repository: TaskRepository | None = None,
+    settings: Settings | None = None,
+) -> FastAPI:
+    settings = settings or Settings.from_env()
+    service, adapter = build_service(repository, settings)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        service.repository.close()
+
     app = FastAPI(
         title="WorkPilot API",
-        version="0.1.0",
+        version="0.2.0",
         description="Safe, approval-bound and auditable cross-system task runtime.",
+        lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,
@@ -64,7 +92,6 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type", "X-Tenant-ID", "X-User-ID"],
     )
-    service, adapter = build_service()
     app.state.service = service
     app.state.fake_adapter = adapter
 
@@ -76,7 +103,12 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health() -> dict[str, str]:
-        return {"status": "ok", "runtime": "fake-enterprise"}
+        storage = (
+            "sqlalchemy"
+            if isinstance(service.repository, SQLAlchemyTaskRepository)
+            else "memory"
+        )
+        return {"status": "ok", "runtime": "fake-enterprise", "storage": storage}
 
     @app.get("/")
     async def console() -> FileResponse:
@@ -191,7 +223,8 @@ def create_app() -> FastAPI:
         async def stream():
             for event in task.events:
                 payload = event.model_dump(mode="json")
-                yield f"id: {event.sequence}\nevent: {event.type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                data = json.dumps(payload, ensure_ascii=False)
+                yield f"id: {event.sequence}\nevent: {event.type}\ndata: {data}\n\n"
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -228,4 +261,3 @@ def _call_or_conflict(function, *args):
 
 
 app = create_app()
-

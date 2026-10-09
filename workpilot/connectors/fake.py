@@ -146,13 +146,13 @@ class FakeEnterpriseAdapter:
             return ActionResult(success=True, data={"documents": matches})
         if action.capability == "report.compose":
             remote_id = f"report-{len(self.state.reports) + 1}"
-            updates = "\n".join(
+            updates_text = "\n".join(
                 f"{item['owner']}: {item['status']}" for item in self.state.updates
             )
             report = {
                 "tenant_id": action.tenant_id,
                 "title": params.get("title", "WorkPilot 项目周报"),
-                "content": f"本周进展\n{updates}\n\n风险与待办\n- 跟进待确认事项",
+                "content": f"本周进展\n{updates_text}\n\n风险与待办\n- 跟进待确认事项",
                 "sources": ["fake://project/updates", "fake://knowledge/weekly-template"],
             }
             self.state.reports[remote_id] = report

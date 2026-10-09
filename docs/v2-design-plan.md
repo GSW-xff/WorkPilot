@@ -1,9 +1,25 @@
 # WorkPilot V2 修改设计方案
 
-> 文档状态：提案  
-> 编写日期：2026-10-09  
-> 基线版本：Git commit `ea3259b`  
+> 文档状态：实施中
+>
+> 编写日期：2026-10-09
+>
+> 基线版本：Git commit `ea3259b`
+>
 > 目标：将当前“可验证的安全纵向原型”升级为“可持久运行、可接真实系统、可量化评测、可用于面试深挖”的产品型项目。
+
+### 当前实施进度
+
+截至 2026-10-09，V2 第一阶段已经实现：
+
+- SQLAlchemy 2 持久 Repository 与内存 Repository Protocol；
+- Task、Step、Approval、Ledger、Verification、Artifact、Timeline、Checkpoint 和 Outbox 数据表；
+- Alembic 初始迁移；
+- PostgreSQL RLS、应用/迁移角色分离和事务内 tenant context；
+- 乐观锁、跨 Repository 重建恢复、租户隔离和 Outbox 自动化测试；
+- Docker Compose、Ruff、mypy、coverage 和 GitHub Actions 门禁。
+
+Temporal、ModelGateway、真实连接器、文件知识管线、Browser Adapter、完整遥测和 Next.js 仍未实现，不能作为当前能力对外描述。
 
 ## 1. 结论先行
 
@@ -753,15 +769,16 @@ V2 面试演示不必上 Kubernetes，但需要提供 Kubernetes manifests 或 H
 
 ## 19. 建议的下一步
 
-第一项实现应是“PostgreSQL 持久化 + CI”，而不是接模型。原因是当前安全闭环已经存在，但所有事实都在内存；先把 Task、Approval、Ledger、Verification 和 Checkpoint 变成可恢复事实，后续 Temporal、真实连接器和模型才有可靠落点。
+“PostgreSQL 持久化 + CI”已经完成。下一项实现应是 Temporal 持久工作流，让已经可恢复的业务事实拥有同样可恢复的控制流，而不是先接模型。
 
 建议下一次开发任务拆分为：
 
-1. 创建 PostgreSQL Compose、SQLAlchemy 模型和 Alembic 初始迁移；
-2. 用 Repository Protocol 替换当前具体内存类型；
-3. 保留 InMemory Repository 作为单元测试实现；
-4. 增加 PostgreSQL 集成测试、RLS 跨租户测试和重启恢复测试；
-5. 更新 README 和架构图，记录迁移前后取舍。
+1. 将当前运行循环拆为确定性 Workflow 和有 I/O 的 Activity；
+2. Approval 使用可校验的 Workflow Update；
+3. Pause/Cancel 使用 Signal，任务状态使用 Query；
+4. 配置 Activity timeout、retry、heartbeat 和非重试错误；
+5. 增加 Worker kill、审批等待期间重启和超时但远端已成功的测试；
+6. 记录 Temporal 与数据库队列取舍的 ADR。
 
 ## 20. 参考资料
 
@@ -774,4 +791,3 @@ V2 面试演示不必上 Kubernetes，但需要提供 Kubernetes manifests 或 H
 - [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/2025/12/09/owasp-top-10-for-agentic-applications-the-benchmark-for-agentic-security-in-the-age-of-autonomous-ai/)：Agent 目标劫持、工具滥用、身份权限、供应链和上下文投毒等风险。
 - [NIST AI Risk Management Framework](https://www.nist.gov/itl/ai-risk-management-framework)：可信 AI 风险治理与 GenAI Profile。
 - [PostgreSQL Row Security Policies](https://www.postgresql.org/docs/current/ddl-rowsecurity.html)：行级安全策略与默认拒绝模型。
-

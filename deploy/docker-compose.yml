@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - workpilot-postgres:/var/lib/postgresql/data
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/10-workpilot.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d workpilot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      WORKPILOT_HOST: 0.0.0.0
+      WORKPILOT_PORT: 8000
+      WORKPILOT_DATABASE_URL: postgresql+psycopg://workpilot_app:workpilot_app@postgres:5432/workpilot
+      WORKPILOT_MIGRATION_DATABASE_URL: postgresql+psycopg://workpilot_owner:workpilot_owner@postgres:5432/workpilot
+      WORKPILOT_ALLOWED_RECIPIENT_DOMAINS: example.com
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        WORKPILOT_DATABASE_URL=$$WORKPILOT_MIGRATION_DATABASE_URL alembic upgrade head
+        && python -m workpilot
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  workpilot-postgres:
+

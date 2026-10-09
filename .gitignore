@@ -4,3 +4,7 @@ __pycache__/
 .venv/
 .coverage
 htmlcov/
+workpilot.db
+*.db-journal
+.mypy_cache/
+.ruff_cache/
