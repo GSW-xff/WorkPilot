@@ -83,6 +83,12 @@ class V2PlanDocumentationTest(unittest.TestCase):
         self.assertIn("Temporal、ModelGateway、真实连接器", self.content)
         self.assertIn("不能作为当前能力对外描述", self.content)
 
+    def test_v2_plan_has_current_interview_scorecard_and_priorities(self) -> None:
+        self.assertIn("### 3.4 当前面试竞争力评分", self.content)
+        self.assertIn("### 3.5 最能拉开差距的五项成果", self.content)
+        self.assertIn("32 项自动化测试、88% 覆盖率", self.content)
+        self.assertIn("Temporal Worker 崩溃恢复", self.content)
+
     def test_v2_plan_preserves_core_safety_invariants(self) -> None:
         invariants = [
             "R2 无审批执行数、R3 执行数、重复副作用数均为 0",
