@@ -2,7 +2,7 @@
 
 WorkPilot 是一个面向企业跨系统办公流程的任务执行 Agent。当前仓库提供一套可直接运行的纵向 MVP：它把自然语言目标转换为任务 DAG，在 Fake 企业系统中执行，遇到外部写入时展示真实参数并等待审批，最后通过远端状态查询验证结果并生成审计回放。
 
-详细产品与技术方案见 [MVP 完整实现方案](docs/mvp-implementation-plan.md)，本次实现边界见 [初版架构与状态](docs/initial-architecture.md)。
+详细产品与技术方案见 [MVP 完整实现方案](docs/mvp-implementation-plan.md)，本次实现边界见 [初版架构与状态](docs/initial-architecture.md)，从当前版本走向可持久运行与面试级工程项目的路线见 [V2 修改设计方案](docs/v2-design-plan.md)。
 
 ## 已实现
 
@@ -75,4 +75,3 @@ tests/                    单元、运行时、安全与 API 测试
 ## 当前边界
 
 当前版本用于验证安全执行闭环，不宣称已经达到方案文档中的八周最终验收目标。它使用进程内仓储和 Fake Adapter；进程重启会清空业务数据。PostgreSQL/Alembic、Temporal、真实 SaaS/MCP、Playwright 多模态观察、PDF/DOCX/XLSX 解析、对象存储、OpenTelemetry 后端、40 条固定评测集和 Next.js 前端仍属于后续迭代。
-
