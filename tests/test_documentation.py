@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PLAN = ROOT / "docs" / "mvp-implementation-plan.md"
 V2_PLAN = ROOT / "docs" / "v2-design-plan.md"
+V3_PLAN = ROOT / "docs" / "v3-interview-advantage-plan.md"
 PERSISTENCE = ROOT / "docs" / "persistence.md"
 TEMPORAL_ADR = ROOT / "docs" / "adr" / "002-temporal-workflow.md"
 
@@ -88,7 +89,7 @@ class V2PlanDocumentationTest(unittest.TestCase):
     def test_v2_plan_has_current_interview_scorecard_and_priorities(self) -> None:
         self.assertIn("### 3.4 当前面试竞争力评分", self.content)
         self.assertIn("### 3.5 最能拉开差距的五项成果", self.content)
-        self.assertIn("42 项自动化测试、88% 覆盖率", self.content)
+        self.assertIn("44 项自动化测试、覆盖率门禁", self.content)
         self.assertIn("Temporal Worker 崩溃恢复", self.content)
 
     def test_v2_plan_preserves_core_safety_invariants(self) -> None:
@@ -115,7 +116,44 @@ class PersistenceDocumentationTest(unittest.TestCase):
             "## 租户隔离",
             "## 本地运行",
             "## 恢复测试",
-            "Temporal 控制流恢复仍属于 V2 下一阶段",
+            "真实 Worker kill/restart 的容器级恢复验收尚未完成",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+
+class V3InterviewAdvantagePlanTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.content = V3_PLAN.read_text(encoding="utf-8")
+
+    def test_plan_separates_current_evidence_from_future_targets(self) -> None:
+        required = [
+            "## 2. 当前功能完整盘点",
+            "## 3. 当前使用的主流工具和技术",
+            "## 4. 当前面试竞争力评估",
+            "## 6. V3 目标架构",
+            "## 8. P0：Agent 评测与质量飞轮",
+            "## 19. V3 完成定义",
+            "## 21. 简历表达模板",
+            "## 22. 优先级 Backlog",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+        self.assertIn("以下均为目标，不是当前结果", self.content)
+        self.assertIn("不能在简历中写成已经实现", self.content)
+
+    def test_plan_requires_measurable_agent_and_user_evidence(self) -> None:
+        required = [
+            "固定任务集",
+            "Worker kill/restart",
+            "一个真实 OAuth 企业连接器",
+            "OpenTelemetry",
+            "OWASP Agentic Top 10",
+            "5 名目标用户",
+            "重复业务副作用数为 0",
         ]
         for item in required:
             with self.subTest(item=item):
