@@ -64,6 +64,16 @@ docker compose -f deploy/docker-compose.yml up --build
 uv run pytest
 ```
 
+运行 60 条版本化任务集的离线确定性评测（默认每条重复 3 次）：
+
+```bash
+uv run workpilot-eval --output evals/reports/local
+```
+
+评测会生成机器可读 `eval-report.json`、人可读 `eval-report.md` 和
+`baseline-comparison.md`。仓库内的 `evals/reports/baseline-v1/` 保留了 DemoPlanner
+基线的完整失败分类；该报告不代表真实模型或 SaaS 实测结果。
+
 ## API 演示
 
 创建任务并执行到第一个审批点：
@@ -107,8 +117,9 @@ workpilot/workflows/      Temporal Workflow、Activity 与客户端
 alembic/                  数据库迁移与 PostgreSQL RLS
 deploy/                   PostgreSQL、Temporal、API 与 Worker 本地部署
 tests/                    单元、运行时、安全与 API 测试
+evals/                    60 条版本化数据集与可重复基准报告
 ```
 
 ## 当前边界
 
-当前已完成 V3 阶段 A 中的模型与上下文核心链路，但不宣称整个阶段 A 或 V3 最终验收已完成。真实云模型调用需要用户配置密钥，其结果不会伪装为仓库内已跑出的基准数据。固定评测集、真实 SaaS/OAuth/MCP、Worker kill/restart 容器验收、真实 PostgreSQL RLS 对抗测试、文件 RAG、OIDC、可观测后端与产品化前端仍需后续实现和实测。
+当前已完成 V3 阶段 A 的模型/上下文核心链路、60 条固定任务集和确定性基准报告，但不宣称真实模型验收或 V3 最终验收已完成。真实云模型调用需要用户配置密钥，其结果不会伪装为仓库内已跑出的基准数据。真实 SaaS/OAuth/MCP、Worker kill/restart 容器验收、真实 PostgreSQL RLS 对抗测试、文件 RAG、OIDC、可观测后端与产品化前端仍需后续实现和实测。
