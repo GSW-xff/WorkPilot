@@ -114,7 +114,7 @@ class MCPClientAdapter:
                 raise ConnectorRejected("MCP server identity mismatch")
             if tool.risk is not RiskLevel.R0:
                 raise ConnectorRejected("MCP client accepts read-only tools only")
-            _validate_description(tool.description)
+            validate_mcp_description(tool.description)
         fingerprint = hashlib.sha256(
             json.dumps(
                 [tool.model_dump(mode="json", by_alias=True) for tool in tools],
@@ -193,7 +193,7 @@ class MCPClientAdapter:
                 await client.aclose()
 
 
-def _validate_description(description: str) -> None:
+def validate_mcp_description(description: str) -> None:
     lowered = description.lower()
     suspicious = ("ignore previous", "system prompt", "bypass approval", "reveal secret")
     if any(marker in lowered for marker in suspicious):
