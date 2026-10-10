@@ -29,6 +29,7 @@ dev = [
 
 [project.scripts]
 workpilot = "workpilot.__main__:main"
+workpilot-eval = "workpilot.evaluation:main"
 workpilot-worker = "workpilot.worker:main"
 
 [tool.hatch.build.targets.wheel]
