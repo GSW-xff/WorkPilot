@@ -1,4 +1,4 @@
-.PHONY: dev db-up db-down migrate test test-temporal lint typecheck check
+.PHONY: dev db-up db-down migrate test test-postgres test-temporal lint typecheck check
 
 dev:
 	uv run workpilot
@@ -17,6 +17,9 @@ test:
 
 test-temporal:
 	WORKPILOT_RUN_TEMPORAL_INTEGRATION=1 uv run pytest tests/test_temporal_integration.py
+
+test-postgres:
+	WORKPILOT_RUN_POSTGRES_INTEGRATION=1 uv run pytest tests/test_postgres_rls_integration.py
 
 lint:
 	uv run ruff check workpilot tests apps alembic
