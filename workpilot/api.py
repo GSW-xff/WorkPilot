@@ -13,6 +13,7 @@ from opentelemetry import context as otel_context
 from opentelemetry.propagate import extract
 from pydantic import BaseModel, Field
 
+from workpilot.auth import AuthenticationError, OIDCVerifier, Principal
 from workpilot.config import Settings
 from workpilot.connectors.base import CapabilityRegistry, ConnectorError
 from workpilot.connectors.fake import FakeEnterpriseAdapter
@@ -56,11 +57,29 @@ class KnowledgeDocumentRequest(BaseModel):
     content: str = Field(min_length=1, max_length=1_000_000)
 
 
-def tenant_context(
+async def tenant_context(
+    request: Request,
     x_tenant_id: Annotated[str, Header(min_length=1)] = "demo",
     x_user_id: Annotated[str, Header(min_length=1)] = "local-user",
+    authorization: Annotated[str | None, Header()] = None,
 ) -> tuple[str, str]:
-    return x_tenant_id, x_user_id
+    verifier: OIDCVerifier | None = request.app.state.auth_verifier
+    if verifier is None:
+        request.state.principal = Principal(
+            subject=x_user_id,
+            tenant_id=x_tenant_id,
+            roles=frozenset({"owner", "approver", "admin"}),
+            scopes=frozenset({"*"}),
+        )
+        return x_tenant_id, x_user_id
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="a bearer token is required")
+    try:
+        principal = await verifier.verify(authorization.removeprefix("Bearer ").strip())
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    request.state.principal = principal
+    return principal.tenant_id, principal.subject
 
 
 def build_service(
@@ -140,6 +159,7 @@ def create_app(
     if settings.otlp_endpoint:
         configure_otlp(settings.otlp_endpoint, settings.service_name)
     service, adapter = build_service(repository, settings)
+    auth_verifier = _build_auth_verifier(settings)
     secret_store = InMemorySecretStore()
     github_oauth = None
     if (
@@ -169,6 +189,8 @@ def create_app(
             )
         yield
         service.repository.close()
+        if auth_verifier is not None:
+            await auth_verifier.close()
 
     app = FastAPI(
         title="WorkPilot API",
@@ -185,6 +207,7 @@ def create_app(
             "Content-Type",
             "Idempotency-Key",
             "Last-Event-ID",
+            "Authorization",
             "traceparent",
             "X-Request-ID",
             "X-Tenant-ID",
@@ -192,6 +215,8 @@ def create_app(
         ],
     )
     app.state.service = service
+    app.state.auth_verifier = auth_verifier
+    app.state.auth_mode = settings.auth_mode
     app.state.fake_adapter = adapter
     app.state.temporal = None
     app.state.github_oauth = github_oauth
@@ -325,11 +350,15 @@ def create_app(
     async def approve_task(
         task_id: str,
         body: ApprovalRequest,
+        request: Request,
         context: Annotated[tuple[str, str], Depends(tenant_context)],
     ):
         tenant_id, user_id = context
+        _require_role(request, "approver")
+        task = service.repository.get(tenant_id, task_id)
+        if settings.auth_mode == "oidc" and task.user_id == user_id:
+            raise HTTPException(status_code=403, detail="task creator cannot approve own action")
         if app.state.temporal is not None:
-            service.repository.get(tenant_id, task_id)
             await app.state.temporal.approve(
                 ApprovalCommand(
                     tenant_id=tenant_id,
@@ -349,9 +378,11 @@ def create_app(
     async def reject_task(
         task_id: str,
         body: RejectionRequest,
+        request: Request,
         context: Annotated[tuple[str, str], Depends(tenant_context)],
     ):
         tenant_id, user_id = context
+        _require_role(request, "approver")
         if app.state.temporal is not None:
             task = service.repository.get(tenant_id, task_id)
             approval = next(
@@ -503,8 +534,10 @@ def create_app(
     @app.delete("/v1/connectors/github/{account_id}")
     async def revoke_github(
         account_id: str,
+        request: Request,
         context: Annotated[tuple[str, str], Depends(tenant_context)],
     ):
+        _require_role(request, "admin")
         if github_oauth is None:
             raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
         tenant_id, _ = context
@@ -537,6 +570,26 @@ def create_app(
         return await mcp_server.handle(payload, tenant_id)
 
     return app
+
+
+def _build_auth_verifier(settings: Settings) -> OIDCVerifier | None:
+    if settings.auth_mode == "headers":
+        return None
+    if settings.auth_mode != "oidc":
+        raise ValueError(f"unsupported auth mode: {settings.auth_mode}")
+    if not settings.oidc_issuer or not settings.oidc_audience or not settings.oidc_jwks_url:
+        raise ValueError("OIDC issuer, audience and JWKS URL are required in oidc auth mode")
+    return OIDCVerifier(
+        issuer=settings.oidc_issuer,
+        audience=settings.oidc_audience,
+        jwks_url=settings.oidc_jwks_url,
+    )
+
+
+def _require_role(request: Request, role: str) -> None:
+    principal: Principal | None = getattr(request.state, "principal", None)
+    if principal is None or not principal.has_role(role):
+        raise HTTPException(status_code=403, detail=f"{role} role is required")
 
 
 async def _translate_value_error(awaitable):

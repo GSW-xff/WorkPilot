@@ -34,6 +34,10 @@ class Settings:
     github_webhook_secret: str | None = None
     otlp_endpoint: str | None = None
     service_name: str = "workpilot-api"
+    auth_mode: str = "headers"
+    oidc_issuer: str | None = None
+    oidc_audience: str | None = None
+    oidc_jwks_url: str | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -69,4 +73,8 @@ class Settings:
             github_webhook_secret=os.getenv("WORKPILOT_GITHUB_WEBHOOK_SECRET") or None,
             otlp_endpoint=os.getenv("WORKPILOT_OTLP_ENDPOINT") or None,
             service_name=os.getenv("WORKPILOT_SERVICE_NAME", "workpilot-api"),
+            auth_mode=os.getenv("WORKPILOT_AUTH_MODE", "headers").strip().lower(),
+            oidc_issuer=os.getenv("WORKPILOT_OIDC_ISSUER") or None,
+            oidc_audience=os.getenv("WORKPILOT_OIDC_AUDIENCE") or None,
+            oidc_jwks_url=os.getenv("WORKPILOT_OIDC_JWKS_URL") or None,
         )
