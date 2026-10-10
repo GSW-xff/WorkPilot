@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workpilot-api
+  labels:
+    {{- include "workpilot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels: {app.kubernetes.io/name: workpilot, app.kubernetes.io/component: api}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: workpilot, app.kubernetes.io/component: api}
+    spec:
+      serviceAccountName: {{ include "workpilot.name" . }}
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: api
+          image: {{ include "workpilot.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["python", "-m", "workpilot"]
+          ports: [{name: http, containerPort: 8000}]
+          env:
+            - {name: WORKPILOT_HOST, value: "0.0.0.0"}
+            - name: WORKPILOT_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.config.databaseSecret }}, key: {{ .Values.config.databaseKey }}}}
+            - {name: WORKPILOT_TEMPORAL_TARGET, value: {{ .Values.config.temporalTarget | quote }}}
+            - {name: WORKPILOT_TEMPORAL_TASK_QUEUE, value: {{ .Values.config.temporalTaskQueue | quote }}}
+            - {name: WORKPILOT_OTLP_ENDPOINT, value: {{ .Values.config.otlpEndpoint | quote }}}
+            - {name: WORKPILOT_SERVICE_NAME, value: workpilot-api}
+          readinessProbe: {httpGet: {path: /health, port: http}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health, port: http}, periodSeconds: 15, failureThreshold: 3}
+          startupProbe: {httpGet: {path: /health, port: http}, periodSeconds: 3, failureThreshold: 20}
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 256Mi}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workpilot-api
+  labels:
+    {{- include "workpilot.labels" . | nindent 4 }}
+spec:
+  selector: {app.kubernetes.io/name: workpilot, app.kubernetes.io/component: api}
+  ports: [{name: http, port: 80, targetPort: http}]

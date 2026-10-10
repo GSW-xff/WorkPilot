@@ -1,0 +1,17 @@
+{{- if .Values.autoscaling.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: {name: workpilot-worker-queue-lag}
+spec:
+  scaleTargetRef: {name: workpilot-worker}
+  minReplicaCount: {{ .Values.autoscaling.minReplicaCount }}
+  maxReplicaCount: {{ .Values.autoscaling.maxReplicaCount }}
+  cooldownPeriod: 60
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: {{ .Values.autoscaling.prometheusAddress | quote }}
+        metricName: workpilot_temporal_task_queue_backlog
+        threshold: {{ .Values.autoscaling.backlogThreshold | quote }}
+        query: 'sum(temporal_task_queue_backlog{task_queue="{{ .Values.config.temporalTaskQueue }}"})'
+{{- end }}

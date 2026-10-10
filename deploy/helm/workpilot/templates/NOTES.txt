@@ -1,0 +1,2 @@
+WorkPilot API service: {{ .Release.Name }}-workpilot-api
+Create {{ .Values.config.databaseSecret }} before deployment and run Alembic as a separate migration job.

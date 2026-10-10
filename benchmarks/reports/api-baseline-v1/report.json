@@ -1,0 +1,34 @@
+{
+  "profile": {
+    "transport": "in-process ASGI",
+    "storage": "memory",
+    "planner": "deterministic demo",
+    "iterations": 300,
+    "concurrency": 20,
+    "paid_model_calls": 0
+  },
+  "throughput_rps": 813.9,
+  "elapsed_seconds": 0.3686,
+  "error_rate": 0.0,
+  "statuses": {
+    "200": 200,
+    "201": 100
+  },
+  "operations": {
+    "create_task": {
+      "count": 100,
+      "mean_ms": 31.67,
+      "p50_ms": 30.878,
+      "p95_ms": 51.253,
+      "p99_ms": 53.819
+    },
+    "list_tasks": {
+      "count": 200,
+      "mean_ms": 15.263,
+      "p50_ms": 15.028,
+      "p95_ms": 25.862,
+      "p99_ms": 27.812
+    }
+  },
+  "capacity_note": "This isolates API/framework overhead. PostgreSQL pool, Temporal queue lag, worker saturation and external SaaS latency require the Compose/staging profile."
+}
