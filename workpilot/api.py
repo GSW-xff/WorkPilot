@@ -5,14 +5,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from workpilot.config import Settings
-from workpilot.connectors.base import CapabilityRegistry
+from workpilot.connectors.base import CapabilityRegistry, ConnectorError
 from workpilot.connectors.fake import FakeEnterpriseAdapter
+from workpilot.connectors.github import GitHubOAuthManager, GitHubWebhookVerifier
+from workpilot.credentials import InMemorySecretStore
 from workpilot.db.repository import SQLAlchemyTaskRepository, create_database_engine
 from workpilot.model_gateway import (
     DeterministicModelGateway,
@@ -131,6 +133,25 @@ def create_app(
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     service, adapter = build_service(repository, settings)
+    secret_store = InMemorySecretStore()
+    github_oauth = None
+    if (
+        settings.github_client_id
+        and settings.github_client_secret
+        and settings.github_oauth_state_secret
+    ):
+        github_oauth = GitHubOAuthManager(
+            client_id=settings.github_client_id,
+            client_secret=settings.github_client_secret,
+            redirect_uri=settings.github_redirect_uri,
+            state_secret=settings.github_oauth_state_secret,
+            secret_store=secret_store,
+        )
+    github_webhook = (
+        GitHubWebhookVerifier(settings.github_webhook_secret)
+        if settings.github_webhook_secret
+        else None
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -151,12 +172,14 @@ def create_app(
         CORSMiddleware,
         allow_origins=["http://localhost:3000", "http://127.0.0.1:8000"],
         allow_credentials=False,
-        allow_methods=["GET", "POST"],
+        allow_methods=["DELETE", "GET", "POST"],
         allow_headers=["Content-Type", "X-Tenant-ID", "X-User-ID"],
     )
     app.state.service = service
     app.state.fake_adapter = adapter
     app.state.temporal = None
+    app.state.github_oauth = github_oauth
+    app.state.github_webhook = github_webhook
 
     @app.exception_handler(TaskNotFoundError)
     async def task_not_found(_request, _exc):
@@ -373,6 +396,64 @@ def create_app(
         }
         adapter.add_document(document)
         return {"id": document["id"], "title": document["title"]}
+
+    @app.get("/v1/connectors/github/authorize")
+    async def github_authorize(
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        if github_oauth is None:
+            raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
+        tenant_id, user_id = context
+        return {"authorization_url": github_oauth.authorization_url(tenant_id, user_id)}
+
+    @app.get("/v1/connectors/github/callback")
+    async def github_callback(code: str, state: str):
+        if github_oauth is None:
+            raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
+        try:
+            return await github_oauth.exchange(code, state)
+        except ConnectorError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/v1/connectors")
+    async def connector_accounts(
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, _ = context
+        if github_oauth is None:
+            return []
+        return [
+            account
+            for (stored_tenant, _account_id), account in github_oauth.accounts.items()
+            if stored_tenant == tenant_id
+        ]
+
+    @app.delete("/v1/connectors/github/{account_id}")
+    async def revoke_github(
+        account_id: str,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        if github_oauth is None:
+            raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
+        tenant_id, _ = context
+        try:
+            return github_oauth.revoke(tenant_id, account_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="connector account not found") from exc
+
+    @app.post("/v1/connectors/github/webhook")
+    async def github_webhook_event(request: Request):
+        if github_webhook is None:
+            raise HTTPException(status_code=503, detail="GitHub webhook is not configured")
+        try:
+            payload = github_webhook.verify(
+                await request.body(),
+                request.headers.get("X-Hub-Signature-256", ""),
+                request.headers.get("X-GitHub-Delivery", ""),
+            )
+            return {"accepted": True, "action": payload.get("action")}
+        except (ConnectorError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return app
 

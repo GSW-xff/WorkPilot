@@ -27,6 +27,11 @@ class Settings:
     model_input_budget: int = 8_000
     model_output_budget: int = 2_000
     model_cost_budget_usd: float = 0.25
+    github_client_id: str | None = None
+    github_client_secret: str | None = None
+    github_oauth_state_secret: str | None = None
+    github_redirect_uri: str = "http://127.0.0.1:8000/v1/connectors/github/callback"
+    github_webhook_secret: str | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -52,4 +57,12 @@ class Settings:
             model_input_budget=int(os.getenv("WORKPILOT_MODEL_INPUT_BUDGET", "8000")),
             model_output_budget=int(os.getenv("WORKPILOT_MODEL_OUTPUT_BUDGET", "2000")),
             model_cost_budget_usd=float(os.getenv("WORKPILOT_MODEL_COST_BUDGET_USD", "0.25")),
+            github_client_id=os.getenv("WORKPILOT_GITHUB_CLIENT_ID") or None,
+            github_client_secret=os.getenv("WORKPILOT_GITHUB_CLIENT_SECRET") or None,
+            github_oauth_state_secret=os.getenv("WORKPILOT_GITHUB_STATE_SECRET") or None,
+            github_redirect_uri=os.getenv(
+                "WORKPILOT_GITHUB_REDIRECT_URI",
+                "http://127.0.0.1:8000/v1/connectors/github/callback",
+            ),
+            github_webhook_secret=os.getenv("WORKPILOT_GITHUB_WEBHOOK_SECRET") or None,
         )
