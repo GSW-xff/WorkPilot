@@ -156,7 +156,12 @@ class WorkPilotService:
             "task_duration_seconds", duration, status=result.status.value.lower()
         )
         if result.status in TERMINAL_STATUSES:
-            TELEMETRY.metrics.counter("task_success_total", status=result.status.value.lower())
+            if result.status is TaskStatus.SUCCEEDED:
+                TELEMETRY.metrics.counter("task_success_total")
+            else:
+                TELEMETRY.metrics.counter(
+                    "task_terminal_failure_total", status=result.status.value.lower()
+                )
         TELEMETRY.record_span(
             "task.run",
             duration * 1_000,
@@ -239,6 +244,9 @@ class WorkPilotService:
             ):
                 decision = self.policy.evaluate(step, self.registry.risks[step.capability], channel)
             if not decision.allowed:
+                TELEMETRY.metrics.counter(
+                    "policy_denied_total", capability=step.capability, risk=step.risk.value
+                )
                 step_run.status = StepStatus.FAILED
                 step_run.error = decision.reason
                 self._transition(task, TaskStatus.FAILED, "policy.denied", decision.reason, step_id)
@@ -471,7 +479,9 @@ class WorkPilotService:
         task.steps[step_id].status = StepStatus.CANCELLED
         self._transition(task, TaskStatus.CANCELLED, "approval.rejected", reason, step_id)
         self._checkpoint(task)
-        return self.repository.save(task, expected_version=version)
+        saved = self.repository.save(task, expected_version=version)
+        TELEMETRY.metrics.counter("task_terminal_failure_total", status="cancelled")
+        return saved
 
     def pause(self, tenant_id: str, task_id: str) -> TaskRun:
         task = self.repository.get(tenant_id, task_id)
@@ -509,7 +519,9 @@ class WorkPilotService:
                 step.status = StepStatus.CANCELLED
         self._transition(task, TaskStatus.CANCELLED, "task.cancelled", "任务已取消")
         self._checkpoint(task)
-        return self.repository.save(task, expected_version=version)
+        saved = self.repository.save(task, expected_version=version)
+        TELEMETRY.metrics.counter("task_terminal_failure_total", status="cancelled")
+        return saved
 
     def recovery_cases(self, tenant_id: str) -> list[dict]:
         return [

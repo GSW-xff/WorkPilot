@@ -46,6 +46,37 @@ class DeploymentAssetsTest(unittest.TestCase):
         self.assertIn("COPY evals ./evals", content)
         self.assertIn("COPY benchmarks ./benchmarks", content)
 
+    def test_prometheus_rules_cover_measurable_slo_signals(self) -> None:
+        prometheus = (ROOT / "deploy" / "observability" / "prometheus.yml").read_text()
+        alerts = (ROOT / "deploy" / "observability" / "alerts.yml").read_text()
+        compose = (ROOT / "deploy" / "docker-compose.yml").read_text()
+        self.assertIn("alerts.yml", prometheus)
+        self.assertIn("alertmanager:9093", prometheus)
+        self.assertIn("alertmanager:", compose)
+        for alert in (
+            "WorkPilotApiAvailabilityBudgetBurn",
+            "WorkPilotApiP95LatencyBudgetBurn",
+            "WorkPilotTaskTerminalReliabilityBudgetBurn",
+            "WorkPilotTraceCompletenessBudgetBurn",
+            "WorkPilotToolErrorRateHigh",
+            "WorkPilotPolicyDenialsDetected",
+        ):
+            with self.subTest(alert=alert):
+                self.assertIn(alert, alerts)
+
+    def test_backup_and_restore_drill_are_safe_and_verifiable(self) -> None:
+        backup = (ROOT / "scripts" / "backup-postgres.sh").read_text()
+        restore = (ROOT / "scripts" / "restore-drill-postgres.sh").read_text()
+        self.assertIn("--format=custom", backup)
+        self.assertIn("backup_sha256", backup)
+        self.assertIn("WORKPILOT_BACKUP_DATABASE_USER", backup)
+        self.assertIn('drill_database="workpilot_restore_drill"', restore)
+        self.assertIn("restore_verification=passed", restore)
+        self.assertIn("trap cleanup EXIT", restore)
+        report = (ROOT / "docs" / "reports" / "backup-restore-drill.md").read_text()
+        self.assertIn("最终结果：通过", report)
+        self.assertIn("演练库清理后残留 | 0", report)
+
 
 if __name__ == "__main__":
     unittest.main()

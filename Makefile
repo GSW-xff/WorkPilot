@@ -1,4 +1,9 @@
-.PHONY: benchmark dev db-up db-down helm-lint migrate test test-browser test-postgres test-temporal lint typecheck check
+.PHONY: backup benchmark dev db-up db-down helm-lint migrate restore-drill test test-browser test-postgres test-temporal lint typecheck check
+
+BACKUP_PATH ?= /private/tmp/workpilot.dump
+
+backup:
+	./scripts/backup-postgres.sh $(BACKUP_PATH)
 
 benchmark:
 	uv run workpilot-benchmark
@@ -14,6 +19,9 @@ db-down:
 
 migrate:
 	uv run alembic upgrade head
+
+restore-drill:
+	./scripts/restore-drill-postgres.sh $(BACKUP_PATH)
 
 helm-lint:
 	helm lint deploy/helm/workpilot

@@ -1,0 +1,100 @@
+groups:
+  - name: workpilot-slo
+    rules:
+      - alert: WorkPilotApiAvailabilityBudgetBurn
+        expr: |
+          (
+            sum(rate(api_request_duration_seconds_count{status=~"2..|3.."}[5m]))
+            /
+            clamp_min(sum(rate(api_request_duration_seconds_count[5m])), 0.001)
+          ) < 0.999
+          and sum(rate(api_request_duration_seconds_count[5m])) > 0
+        for: 10m
+        labels:
+          severity: page
+          slo: api-availability
+        annotations:
+          summary: WorkPilot API availability is below the 99.9% target
+          runbook_url: docs/observability.md#api-availability-or-latency-budget-burn
+
+      - alert: WorkPilotApiP95LatencyBudgetBurn
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(api_request_duration_seconds_bucket{route!~"/metrics|/v1/evaluations/run"}[5m])
+            )
+          ) > 0.3
+        for: 10m
+        labels:
+          severity: ticket
+          slo: api-latency
+        annotations:
+          summary: WorkPilot non-evaluation API P95 is above the 300 ms target
+          runbook_url: docs/observability.md#api-availability-or-latency-budget-burn
+
+      - alert: WorkPilotTaskTerminalReliabilityBudgetBurn
+        expr: |
+          (
+            sum(rate(task_success_total[30m]))
+            /
+            clamp_min(
+              sum(rate(task_success_total[30m]))
+              + sum(rate(task_terminal_failure_total[30m]))
+              + sum(rate(task_error_total[30m])),
+              0.001
+            )
+          ) < 0.995
+          and (
+            sum(rate(task_success_total[30m]))
+            + sum(rate(task_terminal_failure_total[30m]))
+            + sum(rate(task_error_total[30m]))
+          ) > 0
+        for: 15m
+        labels:
+          severity: page
+          slo: task-terminal-reliability
+        annotations:
+          summary: WorkPilot terminal task reliability is below the 99.5% target
+          runbook_url: docs/observability.md#task-failure-or-recovery-backlog
+
+      - alert: WorkPilotTraceCompletenessBudgetBurn
+        expr: |
+          (
+            sum(rate(api_request_trace_total[10m]))
+            /
+            clamp_min(sum(rate(api_request_total[10m])), 0.001)
+          ) < 0.99
+          and sum(rate(api_request_total[10m])) > 0
+        for: 10m
+        labels:
+          severity: ticket
+          slo: trace-completeness
+        annotations:
+          summary: Fewer than 99% of API requests have a WorkPilot request trace
+          runbook_url: docs/observability.md#trace-completeness
+
+      - alert: WorkPilotToolErrorRateHigh
+        expr: |
+          sum(rate(tool_error_total[10m]))
+          /
+          clamp_min(
+            sum(rate(tool_call_total[10m])) + sum(rate(tool_error_total[10m])),
+            0.001
+          ) > 0.01
+        for: 10m
+        labels:
+          severity: ticket
+          slo: tool-reliability
+        annotations:
+          summary: More than 1% of attempted tool calls are failing
+          runbook_url: docs/observability.md#tool-errors-or-policy-denials
+
+      - alert: WorkPilotPolicyDenialsDetected
+        expr: sum(increase(policy_denied_total[5m])) > 0
+        labels:
+          severity: info
+          slo: safety-signal
+        annotations:
+          summary: The deterministic policy rejected one or more planned actions
+          runbook_url: docs/observability.md#tool-errors-or-policy-denials

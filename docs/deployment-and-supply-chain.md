@@ -30,3 +30,6 @@ an actual staging environment and its state/ownership decision.
 
 The GitHub-only CodeQL, Trivy and attestation jobs are not marked as passed until the remote
 workflow actually runs.
+
+PostgreSQL 专用备份身份、`FORCE RLS` 与 `vector` 扩展恢复顺序见
+`docs/backup-and-restore.md`；本地真实演练结果见 `docs/reports/backup-restore-drill.md`。

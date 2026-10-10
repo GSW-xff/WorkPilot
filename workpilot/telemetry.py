@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 from collections import defaultdict
@@ -35,9 +36,27 @@ class SpanRecord:
 class MetricValue:
     count: float = 0
     sum: float = 0
+    buckets: dict[float, float] | None = None
 
 
 class MetricsRegistry:
+    DEFAULT_BUCKETS = (
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.3,
+        0.5,
+        1.0,
+        2.5,
+        5.0,
+        10.0,
+        30.0,
+        60.0,
+    )
+
     def __init__(self) -> None:
         self._values: dict[tuple[str, tuple[tuple[str, str], ...]], MetricValue] = defaultdict(
             MetricValue
@@ -54,10 +73,15 @@ class MetricsRegistry:
     def observe(self, name: str, value: float, **labels: str) -> None:
         key = (name, tuple(sorted(labels.items())))
         with self._lock:
-            self._types[name] = "summary"
+            self._types[name] = "histogram"
             metric = self._values[key]
+            if metric.buckets is None:
+                metric.buckets = {upper_bound: 0 for upper_bound in self.DEFAULT_BUCKETS}
             metric.count += 1
             metric.sum += value
+            for upper_bound in self.DEFAULT_BUCKETS:
+                if value <= upper_bound:
+                    metric.buckets[upper_bound] += 1
 
     def render_prometheus(self) -> str:
         lines: list[str] = []
@@ -69,7 +93,19 @@ class MetricsRegistry:
                     if metric_name != name:
                         continue
                     suffix = _labels(labels)
-                    if metric_type == "summary":
+                    if metric_type == "histogram":
+                        assert value.buckets is not None
+                        for upper_bound, bucket_count in value.buckets.items():
+                            bucket_labels = tuple((*labels, ("le", _format_bound(upper_bound))))
+                            lines.append(
+                                f"{name}_bucket{_labels(tuple(sorted(bucket_labels)))} "
+                                f"{bucket_count:g}"
+                            )
+                        infinite_labels = tuple((*labels, ("le", "+Inf")))
+                        lines.append(
+                            f"{name}_bucket{_labels(tuple(sorted(infinite_labels)))} "
+                            f"{value.count:g}"
+                        )
                         lines.append(f"{name}_count{suffix} {value.count:g}")
                         lines.append(f"{name}_sum{suffix} {value.sum:g}")
                     else:
@@ -183,3 +219,9 @@ def _labels(labels: tuple[tuple[str, str], ...]) -> str:
         for key, value in labels
     )
     return "{" + content + "}"
+
+
+def _format_bound(value: float) -> str:
+    if math.isfinite(value) and value.is_integer():
+        return str(int(value))
+    return f"{value:g}"

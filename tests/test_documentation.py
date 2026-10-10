@@ -7,6 +7,9 @@ V2_PLAN = ROOT / "docs" / "v2-design-plan.md"
 V3_PLAN = ROOT / "docs" / "v3-interview-advantage-plan.md"
 PERSISTENCE = ROOT / "docs" / "persistence.md"
 TEMPORAL_ADR = ROOT / "docs" / "adr" / "002-temporal-workflow.md"
+V3_ARCHITECTURE = ROOT / "docs" / "architecture-v3.md"
+RESUME_EVIDENCE = ROOT / "docs" / "resume-evidence.md"
+V4_PLAN = ROOT / "docs" / "v4-completion-and-next-steps.md"
 
 
 class MvpPlanDocumentationTest(unittest.TestCase):
@@ -176,6 +179,58 @@ class TemporalArchitectureDecisionTest(unittest.TestCase):
         for item in required:
             with self.subTest(item=item):
                 self.assertIn(item, self.content)
+
+
+class V3EvidenceDocumentationTest(unittest.TestCase):
+    def test_architecture_has_container_and_recovery_sequences(self) -> None:
+        content = V3_ARCHITECTURE.read_text()
+        self.assertIn("C4Container", content)
+        self.assertIn("sequenceDiagram", content)
+        self.assertIn("lookup(stable key)", content)
+        self.assertIn("at-least-once", content)
+
+    def test_resume_evidence_separates_reproducible_results_from_gaps(self) -> None:
+        content = RESUME_EVIDENCE.read_text()
+        self.assertIn("60 条版本化 Agent 任务集", content)
+        self.assertIn("100 次投递", content)
+        self.assertIn("尚不能写成已完成", content)
+        self.assertIn("5 人可用性研究", content)
+
+    def test_human_evidence_files_do_not_claim_unperformed_work(self) -> None:
+        demo = (ROOT / "docs" / "demo-runbook.md").read_text()
+        study = (ROOT / "docs" / "user-study-protocol.md").read_text()
+        self.assertIn("不声称视频已经录制", demo)
+        self.assertIn("当前没有声称已完成 5 人研究", study)
+
+
+class V4CompletionPlanTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.content = V4_PLAN.read_text()
+
+    def test_plan_covers_completion_evidence_gaps_and_delivery_order(self) -> None:
+        required = [
+            "## 1. 最新版完成情况",
+            "## 2. 当前可复现数据",
+            "## 3. 仍需补充和完善的内容",
+            "## 4. 推荐实施顺序",
+            "## 5. 下一版完成定义",
+            "## 6. 明确不做与风险控制",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+    def test_plan_reports_current_failures_and_external_evidence_honestly(self) -> None:
+        self.assertIn("safety_pass=0.6667", self.content)
+        self.assertIn("unauthorized_write=0.3333", self.content)
+        self.assertIn("不伪造 GitHub、云模型、用户研究", self.content)
+        self.assertIn("当前项目已经足够进入简历", self.content)
+
+    def test_plan_keeps_future_targets_separate_from_current_results(self) -> None:
+        self.assertIn("均为未来门槛，不是当前成绩", self.content)
+        self.assertIn("无真实 GitHub 沙箱 E2E", self.content)
+        self.assertIn("没有视频、参与者数据或 SUS 结果", self.content)
 
 
 if __name__ == "__main__":
