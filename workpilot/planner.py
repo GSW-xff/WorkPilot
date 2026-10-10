@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 from pydantic import ValidationError
@@ -16,6 +19,7 @@ from workpilot.model_gateway import (
 )
 from workpilot.models import (
     Channel,
+    PlanningDisposition,
     PlanningMetadata,
     PlanStep,
     RiskLevel,
@@ -24,10 +28,132 @@ from workpilot.models import (
 )
 
 
+class SupportedIntent(StrEnum):
+    WEEKLY_REPORT = "weekly_report"
+    MEETING_FOLLOWUP = "meeting_followup"
+    ISSUE_SUMMARY = "issue_summary"
+    RECOVERY_SCENARIO = "recovery_scenario"
+
+
+@dataclass(frozen=True, slots=True)
+class IntentDecision:
+    disposition: PlanningDisposition
+    reason: str
+    intent: SupportedIntent | None = None
+    questions: tuple[str, ...] = ()
+
+
+class PlanningDecisionError(ValueError):
+    def __init__(self, decision: IntentDecision, result_name: str) -> None:
+        super().__init__(decision.reason)
+        self.decision = decision
+        self.result_name = result_name
+
+
+class PlanningClarificationRequired(PlanningDecisionError):
+    def __init__(self, decision: IntentDecision) -> None:
+        super().__init__(decision, "clarification")
+
+
+class PlanningRequestRejected(PlanningDecisionError):
+    def __init__(self, decision: IntentDecision) -> None:
+        super().__init__(decision, "rejected_plan")
+
+
+class IntentGate:
+    """Fail-closed supported-domain gate that runs before any model call."""
+
+    _rejected = (
+        re.compile(
+            r"ignore\s+(all\s+)?previous|reveal\s+(the\s+)?system\s+prompt|"
+            r"system\s+(prompt|message)|developer\s+message",
+            re.IGNORECASE,
+        ),
+        re.compile(r"admin\.delete|payroll\.delete|unknown\.tool|credential|password|shell", re.I),
+        re.compile(r"attacker\.invalid|evil@external\.invalid", re.I),
+        re.compile(r"忽略.{0,10}(指令|规则)|(系统|开发者).{0,10}指令"),
+        re.compile(r"跳过审批|免审批|降低风险|更高权限|R3", re.I),
+        re.compile(r"密码|凭证|执行\s*shell|发到\s*attacker", re.I),
+        re.compile(r"循环依赖|循环执行|无限循环|无限重试|超过预算|超长计划"),
+        re.compile(r"不存在的|缺失依赖|重复\s*step|\b(25|30|100)\s*个.*步骤", re.I),
+        re.compile(r"所有工具.{0,8}(一百|100)次|只读工具.{0,8}写操作|删除.{0,12}成功.{0,8}步骤"),
+    )
+    _intents = (
+        (
+            SupportedIntent.MEETING_FOLLOWUP,
+            re.compile(r"会议结论|会议待办|meeting\s+follow[- ]?up", re.I),
+        ),
+        (
+            SupportedIntent.ISSUE_SUMMARY,
+            re.compile(r"issue\s*(汇总|summary)|高优先级\s*issue", re.I),
+        ),
+        (
+            SupportedIntent.RECOVERY_SCENARIO,
+            re.compile(r"响应丢失|429|任务创建超时|worker\s*崩溃|连接器部分成功", re.I),
+        ),
+        (
+            SupportedIntent.WEEKLY_REPORT,
+            re.compile(
+                r"周报|项目报告|项目简报|每周摘要|本周总结|状态报告|"
+                r"本周进展|项目更新|汇总状态|收集进度.{0,12}生成报告|"
+                r"weekly.{0,20}report|status\s+report|project\s+report|\breport\b",
+                re.I,
+            ),
+        ),
+    )
+    _questions = (
+        "请说明要处理的具体项目、文档或会议。",
+        "请说明期望产物，以及是否需要创建任务或发送邮件。",
+        "如需外部写入，请提供明确对象和收件人。",
+    )
+
+    def evaluate(self, goal: str) -> IntentDecision:
+        normalized = " ".join(goal.split())
+        for pattern in self._rejected:
+            if pattern.search(normalized):
+                return IntentDecision(
+                    disposition=PlanningDisposition.REJECTED,
+                    reason="请求包含越权、绕过安全边界或非有界规划行为",
+                )
+        for intent, pattern in self._intents:
+            if pattern.search(normalized):
+                return IntentDecision(
+                    disposition=PlanningDisposition.EXECUTABLE,
+                    reason="请求属于当前受支持的办公流程域",
+                    intent=intent,
+                )
+        return IntentDecision(
+            disposition=PlanningDisposition.NEEDS_CLARIFICATION,
+            reason="请求不足以绑定具体工具、对象和外部写入影响",
+            questions=self._questions,
+        )
+
+    def enforce(self, goal: str) -> SupportedIntent:
+        decision = self.evaluate(goal)
+        if decision.disposition is PlanningDisposition.NEEDS_CLARIFICATION:
+            raise PlanningClarificationRequired(decision)
+        if decision.disposition is PlanningDisposition.REJECTED:
+            raise PlanningRequestRejected(decision)
+        assert decision.intent is not None
+        return decision.intent
+
+
 class DemoPlanner:
     """Deterministic safe fallback and baseline planner."""
 
+    def __init__(self, intent_gate: IntentGate | None = None) -> None:
+        self.intent_gate = intent_gate or IntentGate()
+
     def plan(self, goal: str, recipient: str = "team@example.com") -> TaskPlan:
+        intent = self.intent_gate.enforce(goal)
+        if intent is SupportedIntent.MEETING_FOLLOWUP:
+            return self._meeting_followup_plan(goal)
+        if intent is SupportedIntent.ISSUE_SUMMARY:
+            return self._issue_summary_plan(goal)
+        return self._weekly_report_plan(goal, recipient)
+
+    @staticmethod
+    def _weekly_report_plan(goal: str, recipient: str) -> TaskPlan:
         return TaskPlan(
             goal=goal,
             constraints=["不得发送给租户外收件人", "所有外部写入必须审批"],
@@ -98,6 +224,69 @@ class DemoPlanner:
             ],
         )
 
+    @staticmethod
+    def _meeting_followup_plan(goal: str) -> TaskPlan:
+        return TaskPlan(
+            goal=goal,
+            constraints=["只从受信会议记录生成待办", "创建正式任务前必须审批"],
+            success_criteria=[{"type": "remote_state", "target": "followup_task"}],
+            steps=[
+                PlanStep(
+                    id="load_meeting_notes",
+                    description="读取会议结论和待办",
+                    capability="knowledge.search",
+                    parameters={"query": "最新会议结论与待办"},
+                    verification=[VerificationRule(type="schema", rule="documents.length > 0")],
+                ),
+                PlanStep(
+                    id="compose_followup",
+                    description="整理负责人、截止时间和来源",
+                    depends_on=["load_meeting_notes"],
+                    capability="report.compose",
+                    risk=RiskLevel.R1,
+                    parameters={"title": "会议结论与待办"},
+                    verification=[VerificationRule(type="remote_query", rule="report exists")],
+                ),
+                PlanStep(
+                    id="create_meeting_followup",
+                    description="建立经过审批的会议跟进任务",
+                    depends_on=["compose_followup"],
+                    capability="task.create",
+                    risk=RiskLevel.R2,
+                    requires_approval=True,
+                    parameters={"title": "跟进会议待办", "assignee": "project-owner@example.com"},
+                    expected_effects=["项目系统新增正式任务"],
+                    verification=[VerificationRule(type="remote_query", rule="task exists")],
+                ),
+            ],
+        )
+
+    @staticmethod
+    def _issue_summary_plan(goal: str) -> TaskPlan:
+        return TaskPlan(
+            goal=goal,
+            constraints=["只读取可见 Issue 和租户内模板"],
+            success_criteria=[{"type": "artifact_exists", "target": "issue_summary"}],
+            steps=[
+                PlanStep(
+                    id="collect_issue_status",
+                    description="读取当前高优先级 Issue 状态",
+                    capability="project.search_updates",
+                    parameters={"period": "current"},
+                    verification=[VerificationRule(type="schema", rule="updates.length > 0")],
+                ),
+                PlanStep(
+                    id="compose_issue_summary",
+                    description="生成带来源的 Issue 风险汇总",
+                    depends_on=["collect_issue_status"],
+                    capability="report.compose",
+                    risk=RiskLevel.R1,
+                    parameters={"title": "高优先级 Issue 风险汇总"},
+                    verification=[VerificationRule(type="remote_query", rule="report exists")],
+                ),
+            ],
+        )
+
 
 class PlanningOutcome:
     def __init__(
@@ -129,6 +318,7 @@ class StructuredPlanner:
         budget: RunBudget | None = None,
         context_builder: ContextBuilder | None = None,
         fallback: DemoPlanner | None = None,
+        intent_gate: IntentGate | None = None,
         max_steps: int = 20,
     ) -> None:
         self.gateway = gateway
@@ -140,6 +330,7 @@ class StructuredPlanner:
             max_tokens=self.budget.max_input_tokens
         )
         self.fallback = fallback or DemoPlanner()
+        self.intent_gate = intent_gate or IntentGate()
         self.max_steps = max_steps
 
     async def plan(
@@ -150,6 +341,7 @@ class StructuredPlanner:
         metadata: dict[str, str],
         retrieved_context: list[ContextItem] | None = None,
     ) -> PlanningOutcome:
+        self.intent_gate.enforce(goal)
         tools = select_candidate_tools(goal, self.available_tools)
         snapshot = self.context_builder.build(
             goal=goal,

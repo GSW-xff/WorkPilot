@@ -7,7 +7,8 @@ WorkPilot 是一个面向企业跨系统办公流程的安全执行 Agent。它�
 ## 已实现
 
 - FastAPI 任务、审批、暂停、恢复、取消、Artifact 与回放接口；
-- 确定性周报 Demo Planner，以及 DAG 无环、能力、步骤数和风险校验；
+- fail-closed 支持域门：可执行、需要澄清、拒绝三类规划结果，拒绝越权和无界请求；
+- 周报、会议跟进、Issue 汇总确定性 Planner，以及 DAG 无环、能力、步骤数和风险校验；
 - ModelGateway Protocol、OpenAI-compatible 云模型 Provider 和可重现 Fake Provider；
 - 结构化 Planner：JSON Schema 输出、一次修复、确定性校验与 DemoPlanner 安全回退；
 - ContextBuilder：分层来源、trust label、Prompt Injection 标记、Tool Search 和 Token 预算裁剪；
@@ -83,15 +84,16 @@ uv run pytest
 make test-temporal
 ```
 
-运行 60 条版本化任务集的离线确定性评测（默认每条重复 3 次）：
+运行 60 条版本化任务集的离线确定性评测（默认每条重复 3 次），并执行安全零容忍门禁：
 
 ```bash
-uv run workpilot-eval --output evals/reports/local
+uv run workpilot-eval --output evals/reports/local --enforce-safety
 ```
 
 评测会生成机器可读 `eval-report.json`、人可读 `eval-report.md` 和
-`baseline-comparison.md`。仓库内的 `evals/reports/baseline-v1/` 保留了 DemoPlanner
-基线的完整失败分类；该报告不代表真实模型或 SaaS 实测结果。
+`baseline-comparison.md`。`evals/reports/baseline-v1/` 保留修复前的失败分类，
+`evals/reports/intent-gated-v2/` 是当前支持域门基线：60 条任务、每条 3 次，共 180 次结果
+全部通过，未授权写入为 0。两者都只代表离线确定性 Planner，不代表真实模型或 SaaS 实测。
 
 ## API 演示
 
@@ -147,7 +149,7 @@ benchmarks/               可重复 API 延迟、吞吐与容量基线
 
 ## 当前边界
 
-当前已完成 V3 阶段 A 的模型/上下文核心链路、60 条固定任务集和确定性基准报告，并完成 GitHub OAuth/Adapter 契约、真实 Temporal 本地服务恢复测试、真实 PostgreSQL RLS 对抗测试、本地可观测栈、MCP 只读安全闭环、OIDC/RBAC 鉴权、带 ACL 和引用的文件检索管线、策略化 Playwright 浏览器证据通道、受控 Memory，以及任务/审批/恢复/评测产品控制台，但不宣称真实模型、GitHub 沙箱 E2E、生产 SLO、5 人可用性研究或 V3 最终验收已完成。真实云模型、GitHub OAuth 沙箱和用户研究需要外部账号或真实参与者。认证部署说明见 [docs/authentication.md](docs/authentication.md)，文件管线说明见 [docs/knowledge-pipeline.md](docs/knowledge-pipeline.md)，Memory 边界见 [docs/memory.md](docs/memory.md)，控制台说明见 [docs/product-console.md](docs/product-console.md)，浏览器边界见 [docs/browser-adapter.md](docs/browser-adapter.md)，Helm/供应链见 [docs/deployment-and-supply-chain.md](docs/deployment-and-supply-chain.md)，容量边界见 [docs/performance.md](docs/performance.md)，数据库实测证据见 [docs/reports/postgres-rls.md](docs/reports/postgres-rls.md)。
+当前已完成 V4 的安全基线收口：Planner 前置支持域门、澄清/拒绝状态、持久化与控制台闭环，固定任务集安全门禁进入 CI。项目也已完成 GitHub OAuth/Adapter 契约、真实 Temporal 本地服务恢复测试、真实 PostgreSQL RLS 对抗测试、本地可观测栈、MCP 只读安全闭环、OIDC/RBAC 鉴权、带 ACL 和引用的文件检索管线、策略化 Playwright 浏览器证据通道、受控 Memory，以及任务/审批/恢复/评测产品控制台，但不宣称真实模型、GitHub 沙箱 E2E、生产 SLO、5 人可用性研究或 V3 最终验收已完成。真实云模型、GitHub OAuth 沙箱和用户研究需要外部账号或真实参与者。规划安全边界见 [docs/planning-safety-gate.md](docs/planning-safety-gate.md)，认证部署说明见 [docs/authentication.md](docs/authentication.md)，文件管线说明见 [docs/knowledge-pipeline.md](docs/knowledge-pipeline.md)，Memory 边界见 [docs/memory.md](docs/memory.md)，控制台说明见 [docs/product-console.md](docs/product-console.md)，浏览器边界见 [docs/browser-adapter.md](docs/browser-adapter.md)，Helm/供应链见 [docs/deployment-and-supply-chain.md](docs/deployment-and-supply-chain.md)，容量边界见 [docs/performance.md](docs/performance.md)，数据库实测证据见 [docs/reports/postgres-rls.md](docs/reports/postgres-rls.md)。
 
 面试时建议从 [简历证据索引](docs/resume-evidence.md)和 [8 分钟 Demo 脚本](docs/demo-runbook.md)开始；
 V3 C4/关键时序见 [架构图](docs/architecture-v3.md)，SLO 计算口径见

@@ -40,6 +40,11 @@ class DeploymentAssetsTest(unittest.TestCase):
             with self.subTest(gate=gate):
                 self.assertIn(gate, content)
 
+    def test_ci_enforces_planner_safety_gate(self) -> None:
+        content = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertIn("workpilot-eval", content)
+        self.assertIn("--enforce-safety", content)
+
     def test_runtime_image_contains_console_reports_and_benchmark_package(self) -> None:
         content = (ROOT / "Dockerfile").read_text()
         self.assertIn("COPY apps ./apps", content)

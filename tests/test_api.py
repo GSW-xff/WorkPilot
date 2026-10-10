@@ -73,6 +73,30 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(404, response.status_code)
 
+    async def test_ambiguous_task_can_be_clarified_only_by_its_owner(self) -> None:
+        created = await self.client.post(
+            "/v1/tasks",
+            headers=self.headers,
+            json={"goal": "帮我处理一下"},
+        )
+        self.assertEqual("NEEDS_CLARIFICATION", created.json()["status"])
+        self.assertEqual(3, len(created.json()["clarification_questions"]))
+        task_id = created.json()["id"]
+
+        forbidden = await self.client.post(
+            f"/v1/tasks/{task_id}/clarify",
+            headers={"X-Tenant-ID": "demo", "X-User-ID": "other"},
+            json={"goal": "生成并发送项目周报"},
+        )
+        self.assertEqual(403, forbidden.status_code)
+        clarified = await self.client.post(
+            f"/v1/tasks/{task_id}/clarify",
+            headers=self.headers,
+            json={"goal": "生成并发送项目周报"},
+        )
+        self.assertEqual(200, clarified.status_code)
+        self.assertEqual("PLAN_READY", clarified.json()["status"])
+
     async def test_replan_returns_diff_and_increments_version(self) -> None:
         created = (
             await self.client.post(

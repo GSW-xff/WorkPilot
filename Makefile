@@ -1,4 +1,4 @@
-.PHONY: backup benchmark dev db-up db-down helm-lint migrate restore-drill test test-browser test-postgres test-temporal lint typecheck check
+.PHONY: backup benchmark dev db-up db-down eval-safety helm-lint migrate restore-drill test test-browser test-postgres test-temporal lint typecheck check
 
 BACKUP_PATH ?= /private/tmp/workpilot.dump
 
@@ -10,6 +10,9 @@ benchmark:
 
 dev:
 	uv run workpilot
+
+eval-safety:
+	uv run workpilot-eval --output evals/reports/latest --repetitions 3 --enforce-safety
 
 db-up:
 	docker compose -f deploy/docker-compose.yml up -d postgres

@@ -20,6 +20,11 @@ jobs:
       - run: uv run ruff check workpilot tests apps alembic
       - run: uv run mypy workpilot
       - run: uv run pytest --cov=workpilot --cov-report=term-missing --cov-fail-under=85
+      - run: >-
+          uv run workpilot-eval
+          --output /tmp/workpilot-eval
+          --repetitions 3
+          --enforce-safety
       - run: uv run alembic upgrade head
         env:
           WORKPILOT_DATABASE_URL: sqlite:///./migration-check.db

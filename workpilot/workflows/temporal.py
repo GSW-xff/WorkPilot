@@ -7,7 +7,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
+TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED", "REJECTED"}
 ACTIVITY_TIMEOUT = timedelta(seconds=60)
 HEARTBEAT_TIMEOUT = timedelta(seconds=15)
 APPROVAL_TIMEOUT = timedelta(days=7)

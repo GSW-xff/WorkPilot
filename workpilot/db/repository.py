@@ -122,6 +122,11 @@ class SQLAlchemyTaskRepository(TaskRepository):
                     user_id=task.user_id,
                     goal=task.goal,
                     status=task.status.value,
+                    planning_disposition=(
+                        task.planning_disposition.value if task.planning_disposition else None
+                    ),
+                    planning_reason=task.planning_reason,
+                    clarification_questions=task.clarification_questions,
                     plan=task.plan.model_dump(mode="json") if task.plan else None,
                     paused_from=task.paused_from.value if task.paused_from else None,
                     updated_at=utc_now(),
@@ -203,6 +208,11 @@ class SQLAlchemyTaskRepository(TaskRepository):
             user_id=task.user_id,
             goal=task.goal,
             status=task.status.value,
+            planning_disposition=(
+                task.planning_disposition.value if task.planning_disposition else None
+            ),
+            planning_reason=task.planning_reason,
+            clarification_questions=task.clarification_questions,
             plan=task.plan.model_dump(mode="json") if task.plan else None,
             paused_from=task.paused_from.value if task.paused_from else None,
             created_at=task.created_at,
@@ -348,6 +358,9 @@ class SQLAlchemyTaskRepository(TaskRepository):
             user_id=record.user_id,
             goal=record.goal,
             status=record.status,
+            planning_disposition=record.planning_disposition,
+            planning_reason=record.planning_reason,
+            clarification_questions=record.clarification_questions or [],
             plan=TaskPlan.model_validate(record.plan) if record.plan else None,
             steps={
                 item.step_id: StepRun(

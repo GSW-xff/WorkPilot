@@ -12,7 +12,8 @@
 
 | 结果 | 可复现证据 | 简历表达边界 |
 | --- | --- | --- |
-| 60 条版本化 Agent 任务集，默认每条 3 次 | `evals/` 与 `workpilot-eval` | 必须同时给失败分类；不是云模型结果 |
+| 支持域门基线 60 条 x 3 次、180/180 通过，未授权写入 0 | `evals/reports/intent-gated-v2/` 与 `workpilot-eval --enforce-safety` | 离线确定性 Planner；不是云模型或 SaaS 结果 |
+| 修复前 Safety 0.6667、未授权写入 0.3333 | `evals/reports/baseline-v1/` | 历史失败基线，用于证明问题发现和回归闭环 |
 | 20 条 Agentic 安全回归全部通过 | `evals/reports/security-v1/` | 确定性策略回归，不是渗透测试 |
 | 10 条检索集三种模式均为 1.0 | `evals/reports/retrieval-v1/` | 离线 hash embedding 精确事实基线 |
 | 真实 Temporal 测试 1 passed / 19.78s | `docs/reports/temporal-fault-injection.md` | 本地开发服务，不代表生产集群 |
@@ -28,3 +29,12 @@
 - 月度 99.9% SLO、生产告警通知和多区域恢复；
 - 5 人可用性研究、SUS 分数和 Demo 视频；
 - 多 Agent 优于单 Agent（参见 ADR-003）。
+
+## 建议简历表述
+
+> 针对离线评测暴露的跨域误规划问题，在模型调用前实现 fail-closed 支持域门与
+> `EXECUTABLE/NEEDS_CLARIFICATION/REJECTED` 一等状态，打通澄清后原任务重规划、数据库迁移、
+> 控制台和 CI 零容忍门禁；在 60 条版本化任务集、每条 3 次的 180 次确定性回归中，将未授权
+> 写入从 0.3333 降至 0，Schema/DAG/Safety/Disposition 均达到 1.0。
+
+这段数字必须与“离线确定性回归”同时出现，不能表述成真实云模型成功率或生产安全率。

@@ -91,6 +91,24 @@ class SQLAlchemyPersistenceTest(unittest.IsolatedAsyncioTestCase):
             repository.save(stale, expected_version=stale.version)
         self.assertEqual("first writer", repository.get("demo", created.id).goal)
 
+    async def test_clarification_disposition_survives_restart(self) -> None:
+        first_repository = self.repository(create_schema=True)
+        first_service = self.service(first_repository)
+        task = first_service.create_task("demo", "owner", "帮我处理一下")
+        self.assertEqual(TaskStatus.NEEDS_CLARIFICATION, task.status)
+
+        second_repository = self.repository()
+        restored = second_repository.get("demo", task.id)
+        self.assertEqual(TaskStatus.NEEDS_CLARIFICATION, restored.status)
+        self.assertEqual(3, len(restored.clarification_questions))
+        clarified = await self.service(second_repository).clarify_task(
+            "demo",
+            task.id,
+            "owner",
+            "生成并发送项目周报",
+        )
+        self.assertEqual(TaskStatus.PLAN_READY, clarified.status)
+
     def test_tenant_scope_applies_to_reads_lists_and_outbox(self) -> None:
         repository = self.repository(create_schema=True)
         service = self.service(repository)
@@ -128,6 +146,9 @@ class AlembicMigrationTest(unittest.TestCase):
             ledger_columns = {
                 column["name"] for column in inspect(engine).get_columns("action_ledger")
             }
+            task_columns = {
+                column["name"] for column in inspect(engine).get_columns("task_runs")
+            }
             engine.dispose()
             self.assertTrue(
                 {
@@ -150,6 +171,13 @@ class AlembicMigrationTest(unittest.TestCase):
                     "reconciliation_status",
                     "last_attempt_at",
                 }.issubset(ledger_columns)
+            )
+            self.assertTrue(
+                {
+                    "planning_disposition",
+                    "planning_reason",
+                    "clarification_questions",
+                }.issubset(task_columns)
             )
 
 
