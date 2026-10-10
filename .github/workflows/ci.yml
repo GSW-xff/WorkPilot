@@ -23,3 +23,40 @@ jobs:
       - run: uv run alembic upgrade head
         env:
           WORKPILOT_DATABASE_URL: sqlite:///./migration-check.db
+
+  postgres-rls:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: workpilot
+          POSTGRES_USER: workpilot_owner
+          POSTGRES_PASSWORD: workpilot_owner
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U workpilot_owner -d workpilot"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --locked
+      - name: Create unprivileged application role
+        run: >-
+          uv run python -c "import psycopg;
+          connection=psycopg.connect('postgresql://workpilot_owner:workpilot_owner@127.0.0.1:5432/workpilot', autocommit=True);
+          connection.execute(\"CREATE ROLE workpilot_app LOGIN PASSWORD 'workpilot_app' NOSUPERUSER NOCREATEDB NOCREATEROLE\");
+          connection.execute('GRANT CONNECT ON DATABASE workpilot TO workpilot_app');
+          connection.execute('GRANT USAGE ON SCHEMA public TO workpilot_app');
+          connection.execute('ALTER DEFAULT PRIVILEGES FOR ROLE workpilot_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO workpilot_app');
+          connection.execute('ALTER DEFAULT PRIVILEGES FOR ROLE workpilot_owner IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO workpilot_app');
+          connection.close()"
+      - run: uv run pytest tests/test_postgres_rls_integration.py
+        env:
+          WORKPILOT_RUN_POSTGRES_INTEGRATION: "1"
