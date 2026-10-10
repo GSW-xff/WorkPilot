@@ -117,6 +117,13 @@ class ActionLedgerRecord(Base):
     remote_id: Mapped[str | None] = mapped_column(String(256))
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reconciliation_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="NOT_REQUIRED"
+    )
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     task: Mapped[TaskRunRecord] = relationship(back_populates="ledger")

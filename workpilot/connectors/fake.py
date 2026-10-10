@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from workpilot.connectors.base import Capability
+from workpilot.connectors.base import Capability, ensure_before_deadline
 from workpilot.models import (
     ActionPreview,
     ActionRequest,
@@ -12,6 +12,7 @@ from workpilot.models import (
     RiskLevel,
     VerificationResult,
     VerificationStatus,
+    utc_now,
 )
 
 
@@ -66,6 +67,7 @@ class FakeEnterpriseAdapter:
         )
 
     async def execute(self, action: ActionRequest, idempotency_key: str) -> ActionResult:
+        ensure_before_deadline(action.deadline_at, utc_now())
         if idempotency_key in self.state.executions:
             cached = self.state.executions[idempotency_key]
             return cached.model_copy(update={"duplicate": True})

@@ -9,6 +9,9 @@ from temporalio.exceptions import ApplicationError
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
 ACTIVITY_TIMEOUT = timedelta(seconds=60)
+HEARTBEAT_TIMEOUT = timedelta(seconds=15)
+APPROVAL_TIMEOUT = timedelta(days=7)
+WORKFLOW_PATCH_ID = "workpilot-v3-heartbeat-recovery-v1"
 ACTIVITY_RETRY = RetryPolicy(
     initial_interval=timedelta(seconds=1),
     backoff_coefficient=2,
@@ -44,21 +47,36 @@ class TaskWorkflow:
     async def run(self, task: TaskRef) -> str:
         self._ref = task
         self._status = "PLAN_READY"
+        workflow.patched(WORKFLOW_PATCH_ID)
         while self._status not in TERMINAL:
             if self._status in {"WAITING_APPROVAL", "PAUSED"}:
                 previous = self._status
-                await self._wait_until_status_changes(previous)
+                try:
+                    await self._wait_until_status_changes(previous)
+                except TimeoutError:
+                    if previous == "WAITING_APPROVAL":
+                        self._status = await workflow.execute_activity(
+                            "cancel_task",
+                            task,
+                            start_to_close_timeout=ACTIVITY_TIMEOUT,
+                            heartbeat_timeout=HEARTBEAT_TIMEOUT,
+                            retry_policy=ACTIVITY_RETRY,
+                            cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+                        )
                 continue
             self._status = await workflow.execute_activity(
                 "advance_task",
                 task,
                 start_to_close_timeout=ACTIVITY_TIMEOUT,
+                heartbeat_timeout=HEARTBEAT_TIMEOUT,
                 retry_policy=ACTIVITY_RETRY,
+                cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
             )
         return self._status
 
     async def _wait_until_status_changes(self, previous: str) -> None:
-        await workflow.wait_condition(lambda: self._status != previous)
+        timeout = APPROVAL_TIMEOUT if previous == "WAITING_APPROVAL" else None
+        await workflow.wait_condition(lambda: self._status != previous, timeout=timeout)
 
     @workflow.update
     async def decide_approval(self, command: ApprovalCommand) -> str:
@@ -75,7 +93,9 @@ class TaskWorkflow:
             activity_name,
             command,
             start_to_close_timeout=ACTIVITY_TIMEOUT,
+            heartbeat_timeout=HEARTBEAT_TIMEOUT,
             retry_policy=ACTIVITY_RETRY,
+            cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
         )
         return self._status
 
@@ -87,7 +107,9 @@ class TaskWorkflow:
             "pause_task",
             self._ref,
             start_to_close_timeout=ACTIVITY_TIMEOUT,
+            heartbeat_timeout=HEARTBEAT_TIMEOUT,
             retry_policy=ACTIVITY_RETRY,
+            cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
         )
 
     @workflow.signal
@@ -98,7 +120,9 @@ class TaskWorkflow:
             "resume_task",
             self._ref,
             start_to_close_timeout=ACTIVITY_TIMEOUT,
+            heartbeat_timeout=HEARTBEAT_TIMEOUT,
             retry_policy=ACTIVITY_RETRY,
+            cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
         )
 
     @workflow.signal
@@ -109,7 +133,9 @@ class TaskWorkflow:
             "cancel_task",
             self._ref,
             start_to_close_timeout=ACTIVITY_TIMEOUT,
+            heartbeat_timeout=HEARTBEAT_TIMEOUT,
             retry_policy=ACTIVITY_RETRY,
+            cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
         )
 
     @workflow.query

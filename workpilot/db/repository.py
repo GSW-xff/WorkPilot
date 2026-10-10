@@ -269,6 +269,11 @@ class SQLAlchemyTaskRepository(TaskRepository):
                 remote_id=item.remote_id,
                 status=item.status,
                 result=item.result,
+                attempt=item.attempt,
+                last_error=item.last_error,
+                next_retry_at=item.next_retry_at,
+                reconciliation_status=item.reconciliation_status,
+                last_attempt_at=item.last_attempt_at,
                 created_at=item.created_at,
             )
             for item in task.ledger
@@ -386,6 +391,11 @@ class SQLAlchemyTaskRepository(TaskRepository):
                         "remote_id": item.remote_id,
                         "status": item.status,
                         "result": item.result,
+                        "attempt": item.attempt,
+                        "last_error": item.last_error,
+                        "next_retry_at": item.next_retry_at,
+                        "reconciliation_status": item.reconciliation_status,
+                        "last_attempt_at": item.last_attempt_at,
                         "created_at": item.created_at,
                     }
                 )

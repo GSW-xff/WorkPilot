@@ -125,6 +125,9 @@ class AlembicMigrationTest(unittest.TestCase):
             command.upgrade(config, "head")
             engine = create_database_engine(database_url)
             table_names = set(inspect(engine).get_table_names())
+            ledger_columns = {
+                column["name"] for column in inspect(engine).get_columns("action_ledger")
+            }
             engine.dispose()
             self.assertTrue(
                 {
@@ -138,6 +141,15 @@ class AlembicMigrationTest(unittest.TestCase):
                     "checkpoints",
                     "outbox_events",
                 }.issubset(table_names)
+            )
+            self.assertTrue(
+                {
+                    "attempt",
+                    "last_error",
+                    "next_retry_at",
+                    "reconciliation_status",
+                    "last_attempt_at",
+                }.issubset(ledger_columns)
             )
 
 

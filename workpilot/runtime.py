@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import timedelta
 from uuid import uuid4
 
-from workpilot.connectors.base import CapabilityRegistry
+from workpilot.connectors.base import CapabilityRegistry, ConnectorError
 from workpilot.dag import topological_order, validate_plan
 from workpilot.models import (
     ActionLedgerEntry,
@@ -213,6 +214,7 @@ class WorkPilotService:
                 capability=step.capability,
                 parameters=step.parameters,
                 channel=channel,
+                deadline_at=utc_now() + timedelta(seconds=60),
             )
             params_hash = parameter_hash(action.parameters)
             adapter = self.registry.adapter_for(step.capability)
@@ -264,15 +266,52 @@ class WorkPilotService:
 
                 result = await adapter.lookup(action, key)
                 if result is None:
+                    existing.attempt += 1
+                    existing.last_attempt_at = utc_now()
+                    existing.last_error = None
+                    existing.next_retry_at = None
                     try:
                         result = await adapter.execute(action, key)
-                    except Exception:
+                    except ConnectorError as exc:
+                        existing.last_error = str(exc)
+                        existing.next_retry_at = (
+                            utc_now() + timedelta(seconds=min(2**existing.attempt, 60))
+                            if exc.retryable
+                            else None
+                        )
+                        if exc.outcome_unknown:
+                            existing.status = "UNKNOWN"
+                            existing.reconciliation_status = "REQUIRED"
+                        else:
+                            existing.status = "RETRYABLE" if exc.retryable else "FAILED"
+                        self._event(
+                            task,
+                            "action.unknown" if exc.outcome_unknown else "action.failed",
+                            "动作结果未知，重试前必须查询远端状态",
+                            step.id,
+                            {
+                                "retryable": exc.retryable,
+                                "attempt": existing.attempt,
+                                "next_retry_at": existing.next_retry_at.isoformat()
+                                if existing.next_retry_at
+                                else None,
+                            },
+                        )
+                        self.repository.save(task, expected_version=task.version)
+                        raise
+                    except Exception as exc:
                         existing.status = "UNKNOWN"
+                        existing.last_error = str(exc)
+                        existing.next_retry_at = utc_now() + timedelta(
+                            seconds=min(2**existing.attempt, 60)
+                        )
+                        existing.reconciliation_status = "REQUIRED"
                         self._event(
                             task,
                             "action.unknown",
                             "动作结果未知，重试前必须查询远端状态",
                             step.id,
+                            {"attempt": existing.attempt},
                         )
                         self.repository.save(task, expected_version=task.version)
                         raise
@@ -312,6 +351,9 @@ class WorkPilotService:
             step_run.result = result.model_dump(mode="json")
             step_run.completed_at = utc_now()
             existing.status = "CONFIRMED"
+            existing.reconciliation_status = "CONFIRMED"
+            existing.last_error = None
+            existing.next_retry_at = None
             self._event(task, "step.succeeded", "远端状态已独立验证", step.id)
             self._checkpoint(task)
             task = self.repository.save(task, expected_version=task.version)
@@ -400,6 +442,24 @@ class WorkPilotService:
         self._transition(task, TaskStatus.CANCELLED, "task.cancelled", "任务已取消")
         self._checkpoint(task)
         return self.repository.save(task, expected_version=version)
+
+    def recovery_cases(self, tenant_id: str) -> list[dict]:
+        return [
+            {
+                "task_id": task.id,
+                "task_status": task.status.value,
+                "step_id": entry.step_id,
+                "action": entry.action,
+                "status": entry.status,
+                "attempt": entry.attempt,
+                "last_error": entry.last_error,
+                "next_retry_at": entry.next_retry_at,
+                "reconciliation_status": entry.reconciliation_status,
+            }
+            for task in self.repository.list(tenant_id)
+            for entry in task.ledger
+            if entry.status in {"UNKNOWN", "RETRYABLE"} or entry.reconciliation_status == "REQUIRED"
+        ]
 
     def _validate_recipient_domains(self, plan) -> None:
         for step in plan.steps:

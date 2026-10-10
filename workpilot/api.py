@@ -190,6 +190,13 @@ def create_app(
         tenant_id, _ = context
         return service.repository.list(tenant_id)
 
+    @app.get("/v1/recovery")
+    async def recovery_cases(
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, _ = context
+        return service.recovery_cases(tenant_id)
+
     @app.get("/v1/tasks/{task_id}")
     async def get_task(
         task_id: str,
