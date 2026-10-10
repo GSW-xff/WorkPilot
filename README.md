@@ -15,6 +15,8 @@ WorkPilot 是一个面向企业跨系统办公流程的安全执行 Agent。它�
 - 重规划 Plan Diff，并禁止删除或篡改已成功步骤；
 - GitHub Issues OAuth/HTTP Adapter：Secret 引用隔离、限流/熔断/超时、远端幂等查询、Webhook 签名与防重放；
 - OpenTelemetry/OTLP Trace、Prometheus 指标、Tempo 与 Grafana 本地观测栈；
+- API Idempotency-Key、RFC Problem Details、任务分页/过滤和 SSE Last-Event-ID 断线续传；
+- Outbox Relay、失败计数/死信与消费端按 event id 去重；
 - R0–R3 策略、R2 参数预览/哈希绑定、R3 拒绝；
 - 邮件、知识、项目更新、报告和任务的 Fake Adapter；
 - tenant 范围内的任务与知识数据访问；
@@ -129,6 +131,7 @@ workpilot/connectors/     统一接口、能力注册与 Fake Adapter
 workpilot/repository.py   tenant-aware 乐观锁仓储
 workpilot/db/             SQLAlchemy 数据模型和持久 Repository
 workpilot/workflows/      Temporal Workflow、Activity 与客户端
+workpilot/outbox.py       At-least-once Outbox Relay 与消费去重
 alembic/                  数据库迁移与 PostgreSQL RLS
 deploy/                   PostgreSQL、Temporal、API 与 Worker 本地部署
 tests/                    单元、运行时、安全与 API 测试

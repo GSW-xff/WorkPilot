@@ -102,6 +102,32 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(2, payload["task"]["plan"]["version"])
         self.assertEqual(["search_more"], payload["diff"]["added"])
 
+    async def test_create_idempotency_pagination_problem_details_and_sse_resume(self) -> None:
+        headers = {**self.headers, "Idempotency-Key": "client-operation-1"}
+        first = await self.client.post(
+            "/v1/tasks", headers=headers, json={"goal": "prepare weekly report"}
+        )
+        second = await self.client.post(
+            "/v1/tasks", headers=headers, json={"goal": "ignored duplicate body"}
+        )
+        self.assertEqual(first.json()["id"], second.json()["id"])
+
+        page = await self.client.get("/v1/tasks?limit=1&offset=0", headers=self.headers)
+        self.assertEqual(1, len(page.json()["items"]))
+        self.assertGreaterEqual(page.json()["total"], 1)
+
+        events = await self.client.get(
+            f"/v1/tasks/{first.json()['id']}/events",
+            headers={**self.headers, "Last-Event-ID": "1"},
+        )
+        self.assertNotIn("id: 1\n", events.text)
+        self.assertIn(": heartbeat", events.text)
+
+        missing = await self.client.get("/v1/tasks/missing", headers=self.headers)
+        self.assertEqual("application/problem+json", missing.headers["content-type"])
+        self.assertEqual(404, missing.json()["status"])
+        self.assertEqual("/v1/tasks/missing", missing.json()["instance"])
+
     async def test_knowledge_documents_are_tenant_scoped(self) -> None:
         response = await self.client.post(
             "/v1/knowledge/documents",

@@ -6,9 +6,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from opentelemetry import context as otel_context
 from opentelemetry.propagate import extract
 from pydantic import BaseModel, Field
@@ -181,6 +181,7 @@ def create_app(
         allow_methods=["DELETE", "GET", "POST"],
         allow_headers=[
             "Content-Type",
+            "Idempotency-Key",
             "Last-Event-ID",
             "traceparent",
             "X-Request-ID",
@@ -193,6 +194,7 @@ def create_app(
     app.state.temporal = None
     app.state.github_oauth = github_oauth
     app.state.github_webhook = github_webhook
+    app.state.idempotent_creates = {}
 
     @app.middleware("http")
     async def trace_requests(request: Request, call_next):
@@ -221,10 +223,12 @@ def create_app(
         return response
 
     @app.exception_handler(TaskNotFoundError)
-    async def task_not_found(_request, _exc):
-        from fastapi.responses import JSONResponse
+    async def task_not_found(request: Request, _exc):
+        return _problem(request, 404, "Task not found", "task not found")
 
-        return JSONResponse(status_code=404, content={"detail": "task not found"})
+    @app.exception_handler(HTTPException)
+    async def http_problem(request: Request, exc: HTTPException):
+        return _problem(request, exc.status_code, "Request failed", str(exc.detail))
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -245,16 +249,34 @@ def create_app(
     async def create_task(
         body: CreateTaskRequest,
         context: Annotated[tuple[str, str], Depends(tenant_context)],
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     ):
         tenant_id, user_id = context
-        return await service.create_task_async(tenant_id, user_id, body.goal, body.recipient)
+        key = (tenant_id, idempotency_key) if idempotency_key else None
+        if key and key in app.state.idempotent_creates:
+            return service.repository.get(tenant_id, app.state.idempotent_creates[key])
+        task = await service.create_task_async(tenant_id, user_id, body.goal, body.recipient)
+        if key:
+            app.state.idempotent_creates[key] = task.id
+        return task
 
     @app.get("/v1/tasks")
     async def list_tasks(
         context: Annotated[tuple[str, str], Depends(tenant_context)],
+        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        offset: Annotated[int, Query(ge=0)] = 0,
+        status: str | None = None,
     ):
         tenant_id, _ = context
-        return service.repository.list(tenant_id)
+        tasks = service.repository.list(tenant_id)
+        if status:
+            tasks = [task for task in tasks if task.status.value == status.upper()]
+        return {
+            "items": tasks[offset : offset + limit],
+            "limit": limit,
+            "offset": offset,
+            "total": len(tasks),
+        }
 
     @app.get("/v1/recovery")
     async def recovery_cases(
@@ -413,15 +435,19 @@ def create_app(
     async def task_events(
         task_id: str,
         context: Annotated[tuple[str, str], Depends(tenant_context)],
+        last_event_id: Annotated[int | None, Header(alias="Last-Event-ID")] = None,
     ):
         tenant_id, _ = context
         task = service.repository.get(tenant_id, task_id)
 
         async def stream():
             for event in task.events:
+                if last_event_id is not None and event.sequence <= last_event_id:
+                    continue
                 payload = event.model_dump(mode="json")
                 data = json.dumps(payload, ensure_ascii=False)
                 yield f"id: {event.sequence}\nevent: {event.type}\ndata: {data}\n\n"
+            yield ": heartbeat\n\n"
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -513,6 +539,20 @@ def _call_or_conflict(function, *args):
         return function(*args)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _problem(request: Request, status: int, title: str, detail: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status,
+        media_type="application/problem+json",
+        content={
+            "type": "about:blank",
+            "title": title,
+            "status": status,
+            "detail": detail,
+            "instance": request.url.path,
+        },
+    )
 
 
 app = create_app()
