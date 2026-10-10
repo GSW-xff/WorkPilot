@@ -30,7 +30,7 @@ WorkPilot 当前已经达到**可以写入简历并进行现场演示的工程�
 
 | 维度 | 状态 | 当前成果 | 证据边界 |
 | --- | --- | --- | --- |
-| Agent Runtime | 已实测 | Planner–Executor–Verifier、强类型 DAG、重规划 Diff、工具路由、独立验证 | 单 Planner；没有多 Agent 优势证据 |
+| Agent Runtime | 已实测 | Planner–Executor–Verifier、强类型 DAG、支持域门、澄清/拒绝、重规划 Diff、工具路由、独立验证 | 单 Planner；没有多 Agent 优势证据 |
 | Model/Context | 已实现 | ModelGateway、OpenAI-compatible Provider、结构化输出、一次修复、安全回退、信任标签、Token/成本预算 | 未用真实付费模型跑固定集 |
 | 安全执行 | 已实测 | R0–R3、R2 参数哈希审批、R3 拒绝、域名白名单、Secret 引用隔离 | 不是渗透测试或生产红队 |
 | 可靠工作流 | 已实测 | Temporal Workflow/Activity、Update/Signal、Worker 重启、History replay | 本地 Temporal 开发服务，非 HA 集群 |
@@ -43,7 +43,7 @@ WorkPilot 当前已经达到**可以写入简历并进行现场演示的工程�
 | Memory | 部分完成 | working/episodic/semantic 分层、来源、TTL、owner、confidence、确认后写入 | 尚未统一落入 PostgreSQL 并验证长期迁移/删除 |
 | 身份权限 | 已实现 | OIDC/JWKS、issuer/audience、tenant claim、RBAC、职责分离 | 尚缺真实 IdP 登录端到端和生产 Token 生命周期 |
 | 产品工作台 | 已实测 | 任务、DAG、审批 Inbox、Artifact、恢复中心、连接器、知识、Memory、Eval 面板 | 无构建静态前端；生产登录、无障碍和大规模交互待验证 |
-| 评测 | 已实测 | 60 条任务集 x 3、失败分类、Wilson 区间、安全/检索回归、报告对比 | Agent 基线暴露安全失败；没有真实模型与人工 judge 校准 |
+| 评测 | 已实测 | 60 条任务集 x 3、失败分类、Wilson 区间、安全零容忍 CI 门禁、报告对比 | 确定性基线已收口；没有真实模型与人工 judge 校准 |
 | 可观测性 | 已实测 | OTel/OTLP、Tempo、Prometheus Histogram、Grafana、6 条 SLO/安全告警、Runbook | 无生产通知渠道和月度 SLO 窗口；队列启动 P95 未采集 |
 | 部署供应链 | 已实测 | Docker、Compose、Helm、KEDA、PDB、NetworkPolicy、非 root/只读 FS、CodeQL/Trivy/SBOM/attestation 定义 | GitHub 远程工作流和真实 K8s staging 尚未作为通过证据 |
 | 备份恢复 | 已实测 | FORCE RLS 下专用备份身份、vector 扩展恢复顺序、隔离恢复与自动清理 | 31 KB 本地逻辑备份；不是生产 RTO/RPO 或 PITR |
@@ -65,7 +65,8 @@ WorkPilot 当前已经达到**可以写入简历并进行现场演示的工程�
 
 | 报告 | 已取得结果 | 正确解释 |
 | --- | --- | --- |
-| Agent baseline | 60 cases x 3；Schema 1.0、审批召回 1.0、DAG 0.9167、Safety 0.6667、unauthorized_write 0.3333 | 这是确定性 DemoPlanner 基线，明确暴露不支持意图仍套用周报写动作的问题，不能包装成高成功率 |
+| 历史 Agent baseline-v1 | 60 cases x 3；Schema 1.0、审批召回 1.0、DAG 0.9167、safety_pass=0.6667、unauthorized_write=0.3333 | 修复前失败基线，保留用于证明评测发现了真实设计缺口 |
+| 当前 intent-gated-v2 | 60 cases x 3，180/180 通过；Schema、DAG、Disposition、Safety、R3 block 均 1.0；unauthorized_write 0 | fail-closed 确定性 Planner 回归；不是云模型、SaaS 或生产红队结果 |
 | Agentic security | 20/20 | 确定性策略门回归，不替代渗透测试 |
 | Retrieval | 10 cases；lexical/vector/hybrid 的 Recall@5、MRR、nDCG@5、Citation P@1 均 1.0 | hash embedding 的精确事实离线集，不代表真实企业语料泛化 |
 | API baseline | 300 ops、并发 20、0% 错误、813.90 req/s；create P95 51.253 ms、list P95 25.862 ms | in-process ASGI + 内存仓储，不是 PostgreSQL/Temporal/SaaS 生产容量 |
@@ -83,20 +84,23 @@ WorkPilot 当前已经达到**可以写入简历并进行现场演示的工程�
 
 ### 3.1 P0：先闭合 Agent 质量与真实连接器证据
 
-#### P0-1 修复固定任务集暴露的安全基线缺口
+#### P0-1 固定任务集安全基线收口（已完成）
 
-当前 DemoPlanner 对不支持或应拒绝的意图仍可能套用固定周报写动作，导致离线报告中的
-`safety_pass=0.6667` 和 `unauthorized_write=0.3333`。这不是测试噪声，应优先修复。
+历史 DemoPlanner 对不支持或应拒绝的意图仍会套用固定周报写动作，导致 `baseline-v1` 中
+`safety_pass=0.6667` 和 `unauthorized_write=0.3333`。该缺口现已完成代码、产品、持久化和
+评测闭环。
 
-实施内容：
+已实施：
 
-1. 在 Planner 前增加支持域/意图分类与 fail-closed `ABSTAIN/NEEDS_CLARIFICATION` 结果；
-2. 把“无需写动作、信息不足、跨域高风险”作为一等计划结果，而不是硬套模板；
-3. 对 supported/unsupported/adversarial 分层报告，禁止用总体均值掩盖安全失败；
-4. 将 unauthorized successful write 固定为 CI 的零容忍门禁。
+1. 在确定性与结构化 Planner 的模型调用前增加支持域门，输出 `EXECUTABLE`、
+   `NEEDS_CLARIFICATION` 或 `REJECTED`；
+2. 把信息不足、越权/注入、未知工具和无界计划作为一等结果，不创建 Plan 或动作；
+3. 新增 owner-only 澄清 API、原任务重新规划、数据库字段/Alembic 迁移及控制台交互；
+4. 评测增加 disposition、unauthorized write、R3 block 等门禁，CI 使用 `--enforce-safety`；
+5. 生成 `intent-gated-v2` 报告：180/180 通过，未授权写入 0，无失败分类。
 
-验收目标（均为未来门槛，不是当前成绩）：安全集未授权写入 0；R3 执行 0；支持域任务的
-Schema/DAG 通过率 100%；拒绝/澄清行为与标注一致。
+当前边界：支持域识别是窄域确定性规则，目的是在模型前 fail closed；它不代表开放域意图识别
+已经解决，也不替代真实模型对比、对抗红队或 GitHub 沙箱 E2E。
 
 #### P0-2 运行真实模型对比评测
 
@@ -164,7 +168,7 @@ Temporal、对象存储、OIDC、Secret Manager 和监控；镜像只允许 dige
 
 | 阶段 | 建议周期 | 关键任务 | 阶段出口 |
 | --- | --- | --- | --- |
-| A：安全基线收口 | 3–5 天 | 支持域/拒绝/澄清、重跑 60 条任务集、CI 零容忍门禁 | unauthorized write=0，失败分类可解释 |
+| A：安全基线收口 | 已完成 | 支持域/拒绝/澄清、重跑 60 条任务集、CI 零容忍门禁 | 180/180 通过，unauthorized write=0 |
 | B：真实外部证据 | 5–7 天 | 真实模型对比、GitHub sandbox E2E、真实 IdP | 三套脱敏、可复现报告 |
 | C：staging 数据与观测 | 1–2 周 | S3/MinIO、pgvector、Memory/Eval 持久化、队列/Outbox 指标 | 重启不丢数据，关键 SLO 可计算 |
 | D：生产化演练 | 1 周 | K8s/IaC、端到端压测、PITR、故障矩阵、告警通知 | staging 验收报告和容量边界 |
@@ -201,6 +205,8 @@ Temporal、对象存储、OIDC、Secret Manager 和监控；镜像只允许 dige
 - 简历数字与边界：`docs/resume-evidence.md`；
 - V3 架构与时序：`docs/architecture-v3.md`；
 - Agent 基线：`evals/reports/baseline-v1/`；
+- 当前支持域门基线：`evals/reports/intent-gated-v2/`；
+- 规划安全设计：`docs/planning-safety-gate.md`；
 - 安全/检索：`evals/reports/security-v1/`、`evals/reports/retrieval-v1/`；
 - Temporal/RLS/备份：`docs/reports/`；
 - SLO 与 Runbook：`docs/slo-and-alerts.md`、`docs/observability.md`；

@@ -74,10 +74,13 @@ class ProductConsoleApiTest(unittest.IsolatedAsyncioTestCase):
             "导出审计包",
             "OIDC Bearer Token",
             "授权 GitHub",
+            "需要补充信息",
         ):
             with self.subTest(surface=surface):
                 self.assertIn(surface, page)
         self.assertIn("refreshTask", page)
+        self.assertIn("clarifyTask", page)
+        self.assertIn("NEEDS_CLARIFICATION", page)
         self.assertIn("setInterval", page)
 
 

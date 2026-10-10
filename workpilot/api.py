@@ -51,6 +51,11 @@ class CreateTaskRequest(BaseModel):
     recipient: str = "team@example.com"
 
 
+class ClarifyTaskRequest(BaseModel):
+    goal: str = Field(min_length=3, max_length=4_000)
+    recipient: str = "team@example.com"
+
+
 class ApprovalRequest(BaseModel):
     step_id: str
     parameter_hash: str
@@ -380,6 +385,26 @@ def create_app(
             app.state.idempotent_creates[key] = task.id
         return task
 
+    @app.post("/v1/tasks/{task_id}/clarify")
+    async def clarify_task(
+        task_id: str,
+        body: ClarifyTaskRequest,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, user_id = context
+        try:
+            return await service.clarify_task(
+                tenant_id,
+                task_id,
+                user_id,
+                body.goal,
+                body.recipient,
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @app.get("/v1/tasks")
     async def list_tasks(
         context: Annotated[tuple[str, str], Depends(tenant_context)],
@@ -429,7 +454,7 @@ def create_app(
         root = Path(__file__).parents[1] / "evals" / "reports"
         reports = {}
         for name, relative in {
-            "agent": Path("baseline-v1/eval-report.json"),
+            "agent": Path("intent-gated-v2/eval-report.json"),
             "retrieval": Path("retrieval-v1/report.json"),
             "security": Path("security-v1/report.json"),
         }.items():

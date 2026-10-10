@@ -10,6 +10,7 @@ TEMPORAL_ADR = ROOT / "docs" / "adr" / "002-temporal-workflow.md"
 V3_ARCHITECTURE = ROOT / "docs" / "architecture-v3.md"
 RESUME_EVIDENCE = ROOT / "docs" / "resume-evidence.md"
 V4_PLAN = ROOT / "docs" / "v4-completion-and-next-steps.md"
+PLANNING_SAFETY = ROOT / "docs" / "planning-safety-gate.md"
 
 
 class MvpPlanDocumentationTest(unittest.TestCase):
@@ -191,7 +192,8 @@ class V3EvidenceDocumentationTest(unittest.TestCase):
 
     def test_resume_evidence_separates_reproducible_results_from_gaps(self) -> None:
         content = RESUME_EVIDENCE.read_text()
-        self.assertIn("60 条版本化 Agent 任务集", content)
+        self.assertIn("180/180 通过", content)
+        self.assertIn("未授权写入 0", content)
         self.assertIn("100 次投递", content)
         self.assertIn("尚不能写成已完成", content)
         self.assertIn("5 人可用性研究", content)
@@ -224,13 +226,27 @@ class V4CompletionPlanTest(unittest.TestCase):
     def test_plan_reports_current_failures_and_external_evidence_honestly(self) -> None:
         self.assertIn("safety_pass=0.6667", self.content)
         self.assertIn("unauthorized_write=0.3333", self.content)
+        self.assertIn("180/180 通过", self.content)
+        self.assertIn("unauthorized_write 0", self.content)
         self.assertIn("不伪造 GitHub、云模型、用户研究", self.content)
         self.assertIn("当前项目已经足够进入简历", self.content)
 
     def test_plan_keeps_future_targets_separate_from_current_results(self) -> None:
-        self.assertIn("均为未来门槛，不是当前成绩", self.content)
         self.assertIn("无真实 GitHub 沙箱 E2E", self.content)
         self.assertIn("没有视频、参与者数据或 SUS 结果", self.content)
+
+    def test_planning_safety_design_documents_fail_closed_boundary(self) -> None:
+        content = PLANNING_SAFETY.read_text()
+        for item in (
+            "模型调用之前",
+            "NEEDS_CLARIFICATION",
+            "REJECTED",
+            "owner-only",
+            "--enforce-safety",
+            "不是开放域分类器",
+        ):
+            with self.subTest(item=item):
+                self.assertIn(item, content)
 
 
 if __name__ == "__main__":

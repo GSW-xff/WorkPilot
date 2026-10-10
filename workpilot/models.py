@@ -23,6 +23,8 @@ class RiskLevel(StrEnum):
 class TaskStatus(StrEnum):
     CREATED = "CREATED"
     PLANNING = "PLANNING"
+    NEEDS_CLARIFICATION = "NEEDS_CLARIFICATION"
+    REJECTED = "REJECTED"
     PLAN_READY = "PLAN_READY"
     RUNNING = "RUNNING"
     WAITING_APPROVAL = "WAITING_APPROVAL"
@@ -59,6 +61,12 @@ class Channel(StrEnum):
     API = "api"
     MCP = "mcp"
     BROWSER = "browser"
+
+
+class PlanningDisposition(StrEnum):
+    EXECUTABLE = "EXECUTABLE"
+    NEEDS_CLARIFICATION = "NEEDS_CLARIFICATION"
+    REJECTED = "REJECTED"
 
 
 class VerificationRule(BaseModel):
@@ -185,6 +193,9 @@ class TaskRun(BaseModel):
     user_id: str
     goal: str
     status: TaskStatus = TaskStatus.CREATED
+    planning_disposition: PlanningDisposition | None = None
+    planning_reason: str | None = None
+    clarification_questions: list[str] = Field(default_factory=list)
     plan: TaskPlan | None = None
     steps: dict[str, StepRun] = Field(default_factory=dict)
     approvals: list[Approval] = Field(default_factory=list)

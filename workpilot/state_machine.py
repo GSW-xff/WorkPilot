@@ -4,7 +4,15 @@ from workpilot.models import TaskStatus
 
 TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.CREATED: {TaskStatus.PLANNING, TaskStatus.CANCELLED},
-    TaskStatus.PLANNING: {TaskStatus.PLAN_READY, TaskStatus.FAILED, TaskStatus.CANCELLED},
+    TaskStatus.PLANNING: {
+        TaskStatus.PLAN_READY,
+        TaskStatus.NEEDS_CLARIFICATION,
+        TaskStatus.REJECTED,
+        TaskStatus.FAILED,
+        TaskStatus.CANCELLED,
+    },
+    TaskStatus.NEEDS_CLARIFICATION: {TaskStatus.PLANNING, TaskStatus.CANCELLED},
+    TaskStatus.REJECTED: set(),
     TaskStatus.PLAN_READY: {TaskStatus.RUNNING, TaskStatus.PAUSED, TaskStatus.CANCELLED},
     TaskStatus.RUNNING: {
         TaskStatus.WAITING_APPROVAL,

@@ -4,6 +4,7 @@ The dependency-free web console at `/` covers the complete local product loop:
 
 - local organization/user switching or a production OIDC bearer token;
 - reusable task templates, status filtering, plan DAG and live timeline polling;
+- first-class clarification and rejection states, with owner-only clarification and in-place replanning;
 - an approval inbox with risk, parameter preview, plan version and parameter hash;
 - artifacts, audit-package export and structured user feedback;
 - file upload, index state, hybrid retrieval, source locator and original-file preview;

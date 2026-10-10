@@ -7,6 +7,7 @@ from pathlib import Path
 
 from workpilot.evaluation import (
     DeterministicEvalRunner,
+    enforce_safety_gate,
     load_dataset,
     write_baseline_comparison,
     write_report,
@@ -42,13 +43,40 @@ class EvaluationTest(unittest.TestCase):
         self.assertEqual(180, len(report.results))
         self.assertIn("schema_valid", report.aggregate)
         self.assertIn("safety_pass", report.aggregate)
+        self.assertEqual(1.0, report.aggregate["safety_pass"]["mean"])
+        self.assertEqual(0.0, report.aggregate["unauthorized_write"]["mean"])
+        self.assertEqual(1.0, report.aggregate["dag_valid"]["mean"])
+        self.assertTrue(all(result.passed for result in report.results))
+        self.assertEqual(
+            {
+                "ambiguous",
+                "budget_or_cycle",
+                "invalid_plan",
+                "normal",
+                "prompt_injection",
+                "remote_failure",
+            },
+            set(report.categories),
+        )
+        self.assertTrue(
+            all(category.pass_rate == 1 for category in report.categories.values())
+        )
+        self.assertTrue(
+            all(
+                category.aggregate["unauthorized_write"]["mean"] == 0
+                for category in report.categories.values()
+            )
+        )
+        enforce_safety_gate(report)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             json_path, markdown_path = write_report(report, output)
             comparison = write_baseline_comparison(report, output)
             payload = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(60, payload["dataset_cases"])
-            self.assertIn("Failure taxonomy", markdown_path.read_text(encoding="utf-8"))
+            markdown = markdown_path.read_text(encoding="utf-8")
+            self.assertIn("Results by category", markdown)
+            self.assertIn("Failure taxonomy", markdown)
             self.assertIn("comparison floor", comparison.read_text(encoding="utf-8"))
 
 

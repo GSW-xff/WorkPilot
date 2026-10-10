@@ -14,6 +14,7 @@ from workpilot.models import (
     ApprovalStatus,
     Artifact,
     Checkpoint,
+    PlanningDisposition,
     StepRun,
     StepStatus,
     TaskRun,
@@ -22,14 +23,25 @@ from workpilot.models import (
     VerificationStatus,
     utc_now,
 )
-from workpilot.planner import DemoPlanner, StructuredPlanner, diff_plans
+from workpilot.planner import (
+    DemoPlanner,
+    PlanningDecisionError,
+    PlanningOutcome,
+    StructuredPlanner,
+    diff_plans,
+)
 from workpilot.policy import PolicyEngine
 from workpilot.repository import TaskRepository
 from workpilot.security import idempotency_key, parameter_hash, redact
 from workpilot.state_machine import ensure_transition
 from workpilot.telemetry import TELEMETRY
 
-TERMINAL_STATUSES = {TaskStatus.CANCELLED, TaskStatus.FAILED, TaskStatus.SUCCEEDED}
+TERMINAL_STATUSES = {
+    TaskStatus.CANCELLED,
+    TaskStatus.FAILED,
+    TaskStatus.REJECTED,
+    TaskStatus.SUCCEEDED,
+}
 
 
 class WorkPilotService:
@@ -63,6 +75,8 @@ class WorkPilotService:
             plan = self.planner.plan(goal, recipient)
             validate_plan(plan, self.registry.names, self.registry.risks, self.max_steps)
             self._validate_recipient_domains(plan)
+        except PlanningDecisionError as exc:
+            return self._store_planning_decision(task, exc)
         except Exception as exc:
             return self._store_planning_failure(task, exc)
         return self._store_plan(task, plan)
@@ -79,19 +93,34 @@ class WorkPilotService:
         task = self._new_task(tenant_id, user_id, goal)
         trace_id = uuid4().hex
         try:
-            outcome = await self.planner.plan(
-                goal,
-                recipient,
-                metadata={
-                    "trace_id": trace_id,
-                    "tenant_id": tenant_id,
-                    "task_id": task.id,
-                },
-            )
-            self._validate_recipient_domains(outcome.plan)
+            outcome = await self._structured_plan(task, recipient, trace_id)
+        except PlanningDecisionError as exc:
+            return self._store_planning_decision(task, exc)
         except Exception as exc:
             return self._store_planning_failure(task, exc)
 
+        self._attach_planning_evidence(task, outcome, trace_id)
+        return self._store_plan(task, outcome.plan)
+
+    async def _structured_plan(
+        self, task: TaskRun, recipient: str, trace_id: str
+    ) -> PlanningOutcome:
+        assert isinstance(self.planner, StructuredPlanner)
+        outcome = await self.planner.plan(
+            task.goal,
+            recipient,
+            metadata={
+                "trace_id": trace_id,
+                "tenant_id": task.tenant_id,
+                "task_id": task.id,
+            },
+        )
+        self._validate_recipient_domains(outcome.plan)
+        return outcome
+
+    def _attach_planning_evidence(
+        self, task: TaskRun, outcome: PlanningOutcome, trace_id: str
+    ) -> None:
         snapshot_id = f"context-{uuid4().hex[:12]}"
         snapshot = outcome.context_snapshot
         safe_messages = [
@@ -106,7 +135,7 @@ class WorkPilotService:
         task.artifacts.append(
             Artifact(
                 id=snapshot_id,
-                tenant_id=tenant_id,
+                tenant_id=task.tenant_id,
                 task_id=task.id,
                 type="context_snapshot",
                 content={
@@ -134,7 +163,51 @@ class WorkPilotService:
                 "context_snapshot_id": snapshot_id,
             },
         )
-        return self._store_plan(task, outcome.plan)
+
+    async def clarify_task(
+        self,
+        tenant_id: str,
+        task_id: str,
+        user_id: str,
+        goal: str,
+        recipient: str = "team@example.com",
+    ) -> TaskRun:
+        task = self.repository.get(tenant_id, task_id)
+        expected_version = task.version
+        if task.user_id != user_id:
+            raise PermissionError("only the task owner can clarify the request")
+        if task.status is not TaskStatus.NEEDS_CLARIFICATION:
+            raise ValueError("task is not waiting for clarification")
+
+        task.goal = goal
+        task.planning_disposition = None
+        task.planning_reason = None
+        task.clarification_questions = []
+        self._transition(
+            task,
+            TaskStatus.PLANNING,
+            "planner.restarted",
+            "已收到补充信息，重新规划",
+        )
+        try:
+            if isinstance(self.planner, StructuredPlanner):
+                trace_id = uuid4().hex
+                outcome = await self._structured_plan(task, recipient, trace_id)
+                self._attach_planning_evidence(task, outcome, trace_id)
+                plan = outcome.plan
+            else:
+                plan = self.planner.plan(goal, recipient)
+                validate_plan(plan, self.registry.names, self.registry.risks, self.max_steps)
+                self._validate_recipient_domains(plan)
+        except PlanningDecisionError as exc:
+            self._apply_planning_decision(task, exc)
+            return self.repository.save(task, expected_version=expected_version)
+        except Exception as exc:
+            self._apply_planning_failure(task, exc)
+            return self.repository.save(task, expected_version=expected_version)
+
+        self._apply_plan(task, plan)
+        return self.repository.save(task, expected_version=expected_version)
 
     async def run(self, tenant_id: str, task_id: str) -> TaskRun:
         started = time.perf_counter()
@@ -204,15 +277,49 @@ class WorkPilotService:
         return task
 
     def _store_planning_failure(self, task: TaskRun, exc: Exception) -> TaskRun:
-        self._transition(task, TaskStatus.FAILED, "plan.failed", str(exc))
+        self._apply_planning_failure(task, exc)
         return self.repository.add(task)
 
+    def _apply_planning_failure(self, task: TaskRun, exc: Exception) -> None:
+        self._transition(task, TaskStatus.FAILED, "plan.failed", str(exc))
+
+    def _store_planning_decision(
+        self, task: TaskRun, exc: PlanningDecisionError
+    ) -> TaskRun:
+        self._apply_planning_decision(task, exc)
+        return self.repository.add(task)
+
+    def _apply_planning_decision(self, task: TaskRun, exc: PlanningDecisionError) -> None:
+        decision = exc.decision
+        task.planning_disposition = decision.disposition
+        task.planning_reason = decision.reason
+        task.clarification_questions = list(decision.questions)
+        if decision.disposition is PlanningDisposition.NEEDS_CLARIFICATION:
+            self._transition(
+                task,
+                TaskStatus.NEEDS_CLARIFICATION,
+                "plan.clarification_required",
+                decision.reason,
+                details={"questions": list(decision.questions)},
+            )
+            TELEMETRY.metrics.counter("planning_disposition_total", disposition="clarification")
+        else:
+            self._transition(task, TaskStatus.REJECTED, "plan.rejected", decision.reason)
+            TELEMETRY.metrics.counter("planning_disposition_total", disposition="rejected")
+        self._checkpoint(task)
+
     def _store_plan(self, task: TaskRun, plan) -> TaskRun:
+        self._apply_plan(task, plan)
+        return self.repository.add(task)
+
+    def _apply_plan(self, task: TaskRun, plan) -> None:
         task.plan = plan
+        task.planning_disposition = PlanningDisposition.EXECUTABLE
+        task.planning_reason = "请求已通过支持域、计划和安全校验"
+        task.clarification_questions = []
         task.steps = {step.id: StepRun(step=step) for step in plan.steps}
         self._transition(task, TaskStatus.PLAN_READY, "plan.ready", "执行计划已通过确定性校验")
         self._checkpoint(task)
-        return self.repository.add(task)
 
     async def _run(self, tenant_id: str, task_id: str) -> TaskRun:
         task = self.repository.get(tenant_id, task_id)
