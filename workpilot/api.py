@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal, cast
 
@@ -68,6 +69,13 @@ class KnowledgeSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2_000)
     top_k: int = Field(default=5, ge=1, le=20)
     mode: Literal["lexical", "vector", "hybrid_rrf"] = "hybrid_rrf"
+
+
+class FeedbackRequest(BaseModel):
+    task_id: str | None = None
+    category: Literal["correct", "incorrect", "confusing", "recovery"]
+    rating: int = Field(ge=1, le=5)
+    comment: str = Field(default="", max_length=2_000)
 
 
 async def tenant_context(
@@ -241,6 +249,7 @@ def create_app(
     app.state.github_webhook = github_webhook
     app.state.mcp_server = mcp_server
     app.state.idempotent_creates = {}
+    app.state.feedback = []
 
     @app.middleware("http")
     async def trace_requests(request: Request, call_next):
@@ -282,6 +291,34 @@ def create_app(
             "sqlalchemy" if isinstance(service.repository, SQLAlchemyTaskRepository) else "memory"
         )
         return {"status": "ok", "runtime": "fake-enterprise", "storage": storage}
+
+    @app.get("/v1/auth/config")
+    async def auth_config():
+        return {
+            "mode": settings.auth_mode,
+            "issuer": settings.oidc_issuer if settings.auth_mode == "oidc" else None,
+            "audience": settings.oidc_audience if settings.auth_mode == "oidc" else None,
+        }
+
+    @app.get("/v1/templates")
+    async def task_templates():
+        return [
+            {
+                "id": "weekly-report",
+                "name": "项目周报",
+                "goal": "收集本周项目进展，生成周报，为缺失事项创建跟进任务，并在审批后发送邮件。",
+            },
+            {
+                "id": "meeting-followup",
+                "name": "会议跟进",
+                "goal": "整理会议结论、负责人和截止时间，审批后创建跟进任务。",
+            },
+            {
+                "id": "issue-summary",
+                "name": "Issue 汇总",
+                "goal": "汇总当前高优先级 Issue，生成带来源的风险报告。",
+            },
+        ]
 
     @app.get("/metrics", response_class=PlainTextResponse)
     async def metrics() -> str:
@@ -330,6 +367,54 @@ def create_app(
     ):
         tenant_id, _ = context
         return service.recovery_cases(tenant_id)
+
+    @app.get("/v1/approvals")
+    async def approval_inbox(
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, _ = context
+        return [
+            {
+                "task_id": task.id,
+                "goal": task.goal,
+                "task_status": task.status,
+                "approval": approval,
+            }
+            for task in service.repository.list(tenant_id)
+            for approval in task.approvals
+            if approval.status.value == "PENDING"
+        ]
+
+    @app.get("/v1/evaluations/latest")
+    async def latest_evaluations(
+        _context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        root = Path(__file__).parents[1] / "evals" / "reports"
+        reports = {}
+        for name, relative in {
+            "agent": Path("baseline-v1/eval-report.json"),
+            "retrieval": Path("retrieval-v1/report.json"),
+        }.items():
+            path = root / relative
+            reports[name] = json.loads(path.read_text()) if path.exists() else None
+        return reports
+
+    @app.post("/v1/feedback", status_code=201)
+    async def record_feedback(
+        body: FeedbackRequest,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, user_id = context
+        if body.task_id is not None:
+            service.repository.get(tenant_id, body.task_id)
+        item = {
+            "id": f"feedback-{len(app.state.feedback) + 1}",
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+            **body.model_dump(),
+        }
+        app.state.feedback.append(item)
+        return {"id": item["id"], "accepted": True}
 
     @app.get("/v1/tasks/{task_id}")
     async def get_task(
@@ -482,6 +567,28 @@ def create_app(
         tenant_id, _ = context
         task = service.repository.get(tenant_id, task_id)
         return {"task_id": task.id, "status": task.status, "events": task.events}
+
+    @app.get("/v1/tasks/{task_id}/audit-export")
+    async def export_task_audit(
+        task_id: str,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, _ = context
+        task = service.repository.get(tenant_id, task_id)
+        payload = {
+            "schema": "workpilot.audit.v1",
+            "exported_at": datetime.now(UTC).isoformat(),
+            "task": task.model_dump(mode="json"),
+            "integrity": {
+                "event_count": len(task.events),
+                "ledger_keys": [item.idempotency_key for item in task.ledger],
+                "artifact_ids": [item.id for item in task.artifacts],
+            },
+        }
+        return JSONResponse(
+            payload,
+            headers={"Content-Disposition": f'attachment; filename="{task.id}-audit.json"'},
+        )
 
     @app.get("/v1/tasks/{task_id}/events")
     async def task_events(
