@@ -2,7 +2,7 @@
 
 WorkPilot 是一个面向企业跨系统办公流程的任务执行 Agent。当前仓库提供一套可直接运行的纵向 MVP，并已完成 V2 的持久化与 Temporal 基础控制流：它把自然语言目标转换为任务 DAG，在 Fake 企业系统中执行，遇到外部写入时展示真实参数并等待审批，最后通过远端状态查询验证结果并生成审计回放。任务、审批、账本、验证、Artifact、事件与检查点可以保存到 PostgreSQL，并由独立 Worker 推进。
 
-详细产品与技术方案见 [MVP 完整实现方案](docs/mvp-implementation-plan.md)，本次实现边界见 [初版架构与状态](docs/initial-architecture.md)，从当前版本走向可持久运行与面试级工程项目的路线见 [V2 修改设计方案](docs/v2-design-plan.md)。
+详细产品与技术方案见 [MVP 完整实现方案](docs/mvp-implementation-plan.md)，本次实现边界见 [初版架构与状态](docs/initial-architecture.md)，持久化与可靠执行路线见 [V2 修改设计方案](docs/v2-design-plan.md)，面向 Agent 岗位的能力盘点、证据标准和后续实施顺序见 [V3 面试竞争力与产品完整性方案](docs/v3-interview-advantage-plan.md)。
 
 ## 已实现
 
