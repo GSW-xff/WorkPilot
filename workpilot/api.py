@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from opentelemetry import context as otel_context
+from opentelemetry.propagate import extract
 from pydantic import BaseModel, Field
 
 from workpilot.config import Settings
@@ -27,6 +30,7 @@ from workpilot.models import TaskPlan
 from workpilot.planner import DemoPlanner, StructuredPlanner
 from workpilot.repository import InMemoryTaskRepository, TaskNotFoundError, TaskRepository
 from workpilot.runtime import WorkPilotService
+from workpilot.telemetry import TELEMETRY, configure_otlp
 from workpilot.workflows.client import TemporalTaskClient
 from workpilot.workflows.temporal import ApprovalCommand
 
@@ -132,6 +136,8 @@ def create_app(
     settings: Settings | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
+    if settings.otlp_endpoint:
+        configure_otlp(settings.otlp_endpoint, settings.service_name)
     service, adapter = build_service(repository, settings)
     secret_store = InMemorySecretStore()
     github_oauth = None
@@ -173,13 +179,46 @@ def create_app(
         allow_origins=["http://localhost:3000", "http://127.0.0.1:8000"],
         allow_credentials=False,
         allow_methods=["DELETE", "GET", "POST"],
-        allow_headers=["Content-Type", "X-Tenant-ID", "X-User-ID"],
+        allow_headers=[
+            "Content-Type",
+            "Last-Event-ID",
+            "traceparent",
+            "X-Request-ID",
+            "X-Tenant-ID",
+            "X-User-ID",
+        ],
     )
     app.state.service = service
     app.state.fake_adapter = adapter
     app.state.temporal = None
     app.state.github_oauth = github_oauth
     app.state.github_webhook = github_webhook
+
+    @app.middleware("http")
+    async def trace_requests(request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID") or __import__("uuid").uuid4().hex
+        token = otel_context.attach(extract(request.headers))
+        started = time.perf_counter()
+        try:
+            with TELEMETRY.span(
+                "http.request",
+                {
+                    "workpilot.request.id": request_id,
+                    "workpilot.http.method": request.method,
+                    "workpilot.http.path": request.url.path,
+                },
+            ):
+                response = await call_next(request)
+        finally:
+            otel_context.detach(token)
+        response.headers["X-Request-ID"] = request_id
+        TELEMETRY.metrics.observe(
+            "api_request_duration_seconds",
+            time.perf_counter() - started,
+            method=request.method,
+            status=str(response.status_code),
+        )
+        return response
 
     @app.exception_handler(TaskNotFoundError)
     async def task_not_found(_request, _exc):
@@ -193,6 +232,10 @@ def create_app(
             "sqlalchemy" if isinstance(service.repository, SQLAlchemyTaskRepository) else "memory"
         )
         return {"status": "ok", "runtime": "fake-enterprise", "storage": storage}
+
+    @app.get("/metrics", response_class=PlainTextResponse)
+    async def metrics() -> str:
+        return TELEMETRY.metrics.render_prometheus()
 
     @app.get("/")
     async def console() -> FileResponse:

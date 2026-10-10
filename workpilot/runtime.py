@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import time
 from datetime import timedelta
 from uuid import uuid4
 
@@ -26,6 +27,7 @@ from workpilot.policy import PolicyEngine
 from workpilot.repository import TaskRepository
 from workpilot.security import idempotency_key, parameter_hash, redact
 from workpilot.state_machine import ensure_transition
+from workpilot.telemetry import TELEMETRY
 
 TERMINAL_STATUSES = {TaskStatus.CANCELLED, TaskStatus.FAILED, TaskStatus.SUCCEEDED}
 
@@ -134,6 +136,34 @@ class WorkPilotService:
         )
         return self._store_plan(task, outcome.plan)
 
+    async def run(self, tenant_id: str, task_id: str) -> TaskRun:
+        started = time.perf_counter()
+        try:
+            result = await self._run(tenant_id, task_id)
+        except Exception as exc:
+            duration = time.perf_counter() - started
+            TELEMETRY.metrics.counter("task_error_total", error_type=type(exc).__name__)
+            TELEMETRY.metrics.observe("task_duration_seconds", duration, status="error")
+            TELEMETRY.record_span(
+                "task.run",
+                duration * 1_000,
+                {"task.id": task_id, "workpilot.tenant.id": tenant_id},
+                error_type=type(exc).__name__,
+            )
+            raise
+        duration = time.perf_counter() - started
+        TELEMETRY.metrics.observe(
+            "task_duration_seconds", duration, status=result.status.value.lower()
+        )
+        if result.status in TERMINAL_STATUSES:
+            TELEMETRY.metrics.counter("task_success_total", status=result.status.value.lower())
+        TELEMETRY.record_span(
+            "task.run",
+            duration * 1_000,
+            {"task.id": task_id, "workpilot.tenant.id": tenant_id},
+        )
+        return result
+
     def replan(self, tenant_id: str, task_id: str, candidate) -> tuple[TaskRun, dict]:
         task = self.repository.get(tenant_id, task_id)
         if task.plan is None:
@@ -179,7 +209,7 @@ class WorkPilotService:
         self._checkpoint(task)
         return self.repository.add(task)
 
-    async def run(self, tenant_id: str, task_id: str) -> TaskRun:
+    async def _run(self, tenant_id: str, task_id: str) -> TaskRun:
         task = self.repository.get(tenant_id, task_id)
         if task.status is TaskStatus.PLAN_READY:
             self._transition(task, TaskStatus.RUNNING, "task.running", "任务开始执行")
@@ -199,7 +229,15 @@ class WorkPilotService:
 
             step = step_run.step
             channel = self.registry.channel_for(step.capability, step.preferred_channel)
-            decision = self.policy.evaluate(step, self.registry.risks[step.capability], channel)
+            with TELEMETRY.span(
+                "policy.evaluate",
+                {
+                    "task.id": task_id,
+                    "step.id": step.id,
+                    "tool.name": step.capability,
+                },
+            ):
+                decision = self.policy.evaluate(step, self.registry.risks[step.capability], channel)
             if not decision.allowed:
                 step_run.status = StepStatus.FAILED
                 step_run.error = decision.reason
@@ -264,15 +302,34 @@ class WorkPilotService:
                     step_run = task.steps[step_id]
                     existing = next(item for item in task.ledger if item.idempotency_key == key)
 
-                result = await adapter.lookup(action, key)
+                with TELEMETRY.span(
+                    "tool.lookup",
+                    {"task.id": task_id, "step.id": step.id, "tool.name": step.capability},
+                ):
+                    result = await adapter.lookup(action, key)
                 if result is None:
                     existing.attempt += 1
                     existing.last_attempt_at = utc_now()
                     existing.last_error = None
                     existing.next_retry_at = None
                     try:
-                        result = await adapter.execute(action, key)
+                        with TELEMETRY.span(
+                            "tool.execute",
+                            {
+                                "task.id": task_id,
+                                "step.id": step.id,
+                                "tool.name": step.capability,
+                                "workpilot.retry.count": existing.attempt - 1,
+                            },
+                        ):
+                            result = await adapter.execute(action, key)
+                        TELEMETRY.metrics.counter("tool_call_total", capability=step.capability)
                     except ConnectorError as exc:
+                        TELEMETRY.metrics.counter(
+                            "tool_error_total",
+                            capability=step.capability,
+                            error_type=type(exc).__name__,
+                        )
                         existing.last_error = str(exc)
                         existing.next_retry_at = (
                             utc_now() + timedelta(seconds=min(2**existing.attempt, 60))
@@ -300,6 +357,11 @@ class WorkPilotService:
                         self.repository.save(task, expected_version=task.version)
                         raise
                     except Exception as exc:
+                        TELEMETRY.metrics.counter(
+                            "tool_error_total",
+                            capability=step.capability,
+                            error_type=type(exc).__name__,
+                        )
                         existing.status = "UNKNOWN"
                         existing.last_error = str(exc)
                         existing.next_retry_at = utc_now() + timedelta(
@@ -318,6 +380,8 @@ class WorkPilotService:
                 existing.remote_id = result.remote_id
                 existing.status = "DISPATCHED" if result.success else "FAILED"
                 existing.result = redact(result.model_dump(mode="json"))
+                if result.duplicate:
+                    TELEMETRY.metrics.counter("tool_duplicate_total", capability=step.capability)
 
             artifact = Artifact(
                 id=f"artifact-{uuid4().hex[:12]}",
@@ -328,7 +392,11 @@ class WorkPilotService:
                 content=redact(result.model_dump(mode="json")),
             )
             task.artifacts.append(artifact)
-            verification = await adapter.verify(action, result)
+            with TELEMETRY.span(
+                "tool.verify",
+                {"task.id": task_id, "step.id": step.id, "tool.name": step.capability},
+            ):
+                verification = await adapter.verify(action, result)
             verification.evidence_refs = list(
                 dict.fromkeys([f"artifact://{artifact.id}", *verification.evidence_refs])
             )

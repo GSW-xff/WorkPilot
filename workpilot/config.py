@@ -32,6 +32,8 @@ class Settings:
     github_oauth_state_secret: str | None = None
     github_redirect_uri: str = "http://127.0.0.1:8000/v1/connectors/github/callback"
     github_webhook_secret: str | None = None
+    otlp_endpoint: str | None = None
+    service_name: str = "workpilot-api"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -65,4 +67,6 @@ class Settings:
                 "http://127.0.0.1:8000/v1/connectors/github/callback",
             ),
             github_webhook_secret=os.getenv("WORKPILOT_GITHUB_WEBHOOK_SECRET") or None,
+            otlp_endpoint=os.getenv("WORKPILOT_OTLP_ENDPOINT") or None,
+            service_name=os.getenv("WORKPILOT_SERVICE_NAME", "workpilot-api"),
         )

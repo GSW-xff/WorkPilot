@@ -1,0 +1,40 @@
+{
+  "title": "WorkPilot Reliability and Cost",
+  "uid": "workpilot-v3",
+  "schemaVersion": 40,
+  "refresh": "5s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Task duration",
+      "targets": [{"expr": "rate(task_duration_seconds_sum[5m]) / rate(task_duration_seconds_count[5m])", "legendFormat": "{{status}}"}],
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Tool errors and duplicates",
+      "targets": [
+        {"expr": "rate(tool_error_total[5m])", "legendFormat": "errors {{capability}}"},
+        {"expr": "rate(tool_duplicate_total[5m])", "legendFormat": "duplicates {{capability}}"}
+      ],
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8}
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Model token usage",
+      "targets": [{"expr": "rate(model_token_usage_total[5m])", "legendFormat": "{{model}} {{direction}}"}],
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Estimated model cost (USD)",
+      "targets": [{"expr": "sum(model_cost_usd_total)", "legendFormat": "cost"}],
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8}
+    }
+  ]
+}

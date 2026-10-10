@@ -10,6 +10,8 @@ from uuid import uuid4
 import httpx
 from pydantic import BaseModel, Field
 
+from workpilot.telemetry import TELEMETRY
+
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
 
@@ -289,7 +291,7 @@ def _record(
     cost: float,
     retry_count: int = 0,
 ) -> ModelCallRecord:
-    return ModelCallRecord(
+    record = ModelCallRecord(
         provider=policy.provider,
         model=policy.model,
         request_id=request_id,
@@ -304,3 +306,37 @@ def _record(
         tenant_id=metadata.get("tenant_id", "unknown"),
         task_id=metadata.get("task_id", "unknown"),
     )
+    TELEMETRY.metrics.counter(
+        "model_token_usage_total",
+        input_tokens,
+        provider=policy.provider,
+        model=policy.model,
+        direction="input",
+    )
+    TELEMETRY.metrics.counter(
+        "model_token_usage_total",
+        output_tokens,
+        provider=policy.provider,
+        model=policy.model,
+        direction="output",
+    )
+    TELEMETRY.metrics.counter(
+        "model_cost_usd_total", cost, provider=policy.provider, model=policy.model
+    )
+    TELEMETRY.metrics.observe(
+        "model_latency_seconds", latency_ms / 1_000, provider=policy.provider, model=policy.model
+    )
+    TELEMETRY.record_span(
+        "model.plan",
+        latency_ms,
+        {
+            "gen_ai.provider.name": policy.provider,
+            "gen_ai.request.model": policy.model,
+            "gen_ai.usage.input_tokens": input_tokens,
+            "gen_ai.usage.output_tokens": output_tokens,
+            "workpilot.prompt.version": policy.prompt_version,
+            "workpilot.schema.version": policy.schema_version,
+            "task.id": metadata.get("task_id", "unknown"),
+        },
+    )
+    return record
