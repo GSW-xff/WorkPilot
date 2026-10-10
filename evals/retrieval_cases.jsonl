@@ -1,0 +1,10 @@
+{"id":"rag-001","query":"项目 Phoenix 的发布日期是什么","relevant":"phoenix.md","corpus":{"phoenix.md":"Phoenix 项目计划在 11 月 18 日正式发布。","travel.md":"团队差旅报销应在出差结束后提交。","security.md":"季度安全演练安排在十二月。"}}
+{"id":"rag-002","query":"客户续约折扣上限","relevant":"sales.md","corpus":{"sales.md":"企业客户年度续约折扣上限为百分之十五。","hr.md":"年度休假不能结转到下一年。","ops.md":"生产变更需要双人复核。"}}
+{"id":"rag-003","query":"数据库恢复目标 RTO","relevant":"recovery.md","corpus":{"recovery.md":"核心数据库灾难恢复目标 RTO 为四十五分钟。","design.md":"前端使用统一设计令牌。","legal.md":"合同需要法务审批。"}}
+{"id":"rag-004","query":"新员工设备申请找谁","relevant":"onboarding.md","corpus":{"onboarding.md":"新员工设备由 IT 服务台的陈工负责申请。","finance.md":"费用中心每月关闭一次。","release.md":"发布窗口为周四晚间。"}}
+{"id":"rag-005","query":"Aster 风险负责人","relevant":"aster.md","corpus":{"aster.md":"Aster 项目的集成风险负责人是 Alice。","calendar.md":"全员会议在每月第一个周一。","policy.md":"所有外发邮件都要审批。"}}
+{"id":"rag-006","query":"故障 P1 多久响应","relevant":"incident.md","corpus":{"incident.md":"P1 故障必须在五分钟内响应并建立指挥频道。","product.md":"路线图每季度评审。","office.md":"访客需要前台登记。"}}
+{"id":"rag-007","query":"供应商 Orion 的付款周期","relevant":"vendor.md","corpus":{"vendor.md":"Orion 供应商合同约定付款周期为三十天。","brand.md":"品牌主色是深蓝色。","quality.md":"回归测试覆盖关键流程。"}}
+{"id":"rag-008","query":"周报提交截止时间","relevant":"weekly.md","corpus":{"weekly.md":"项目周报须在每周五下午三点前提交。","hiring.md":"面试反馈当天提交。","support.md":"客服轮班每周更新。"}}
+{"id":"rag-009","query":"Atlas 数据保留多久","relevant":"atlas.md","corpus":{"atlas.md":"Atlas 审计数据保留期限为二十四个月。","meeting.md":"会议默认三十分钟。","budget.md":"预算按季度复盘。"}}
+{"id":"rag-010","query":"紧急发布审批人","relevant":"deploy.md","corpus":{"deploy.md":"紧急发布需要值班经理和服务负责人共同审批。","culture.md":"团队鼓励书面沟通。","assets.md":"资产每年盘点。"}}

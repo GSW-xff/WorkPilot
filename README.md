@@ -134,6 +134,7 @@ workpilot/repository.py   tenant-aware 乐观锁仓储
 workpilot/db/             SQLAlchemy 数据模型和持久 Repository
 workpilot/workflows/      Temporal Workflow、Activity 与客户端
 workpilot/outbox.py       At-least-once Outbox Relay 与消费去重
+workpilot/knowledge.py    文件解析、ACL、混合检索与可核验引用
 alembic/                  数据库迁移与 PostgreSQL RLS
 deploy/                   PostgreSQL、Temporal、API 与 Worker 本地部署
 tests/                    单元、运行时、安全与 API 测试
@@ -142,4 +143,4 @@ evals/                    60 条版本化数据集与可重复基准报告
 
 ## 当前边界
 
-当前已完成 V3 阶段 A 的模型/上下文核心链路、60 条固定任务集和确定性基准报告，并完成 GitHub OAuth/Adapter 契约、真实 Temporal 本地服务恢复测试、本地可观测栈、MCP 只读安全闭环与 OIDC/RBAC 鉴权，但不宣称真实模型、GitHub 沙箱 E2E、生产 SLO 或 V3 最终验收已完成。真实云模型和 GitHub OAuth 调用需要用户配置密钥。真实 PostgreSQL RLS 对抗测试、文件 RAG 与产品化前端仍需后续实现和实测。认证部署说明见 [docs/authentication.md](docs/authentication.md)。
+当前已完成 V3 阶段 A 的模型/上下文核心链路、60 条固定任务集和确定性基准报告，并完成 GitHub OAuth/Adapter 契约、真实 Temporal 本地服务恢复测试、本地可观测栈、MCP 只读安全闭环、OIDC/RBAC 鉴权，以及带 ACL 和引用的文件检索管线，但不宣称真实模型、GitHub 沙箱 E2E、生产 SLO 或 V3 最终验收已完成。真实云模型和 GitHub OAuth 调用需要用户配置密钥。真实 PostgreSQL RLS 对抗测试与产品化前端仍需后续实现和实测。认证部署说明见 [docs/authentication.md](docs/authentication.md)，文件管线说明及边界见 [docs/knowledge-pipeline.md](docs/knowledge-pipeline.md)。
