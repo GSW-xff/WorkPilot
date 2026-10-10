@@ -185,9 +185,7 @@ class CheckpointRecord(Base):
 
 class OutboxEventRecord(Base):
     __tablename__ = "outbox_events"
-    __table_args__ = (
-        UniqueConstraint("task_id", "sequence", name="uq_outbox_task_sequence"),
-    )
+    __table_args__ = (UniqueConstraint("task_id", "sequence", name="uq_outbox_task_sequence"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)

@@ -1,2 +1,1 @@
 """WorkPilot deployable applications."""
-

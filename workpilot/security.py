@@ -23,9 +23,7 @@ def idempotency_key(
     action_type: str,
     parameters: dict[str, Any],
 ) -> str:
-    material = "\x1f".join(
-        [tenant_id, task_id, step_id, action_type, canonical_json(parameters)]
-    )
+    material = "\x1f".join([tenant_id, task_id, step_id, action_type, canonical_json(parameters)])
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
@@ -40,4 +38,3 @@ def redact(value: Any) -> Any:
     if isinstance(value, str):
         return re.sub(r"Bearer\s+[A-Za-z0-9._~-]+", "Bearer [REDACTED]", value)
     return value
-

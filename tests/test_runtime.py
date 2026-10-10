@@ -11,9 +11,7 @@ class RuntimeTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.adapter = FakeEnterpriseAdapter()
         self.repository = InMemoryTaskRepository()
-        self.service = WorkPilotService(
-            self.repository, CapabilityRegistry([self.adapter])
-        )
+        self.service = WorkPilotService(self.repository, CapabilityRegistry([self.adapter]))
 
     async def test_end_to_end_demo_requires_both_approvals_and_verifies(self) -> None:
         task = self.service.create_task("demo", "user-1", "生成并发送项目周报")
@@ -36,9 +34,7 @@ class RuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({}, self.adapter.state.sent_mail)
 
         approval = task.approvals[-1]
-        self.service.approve(
-            "demo", task.id, approval.step_id, approval.parameter_hash, "approver"
-        )
+        self.service.approve("demo", task.id, approval.step_id, approval.parameter_hash, "approver")
         task = await self.service.run("demo", task.id)
 
         self.assertEqual(TaskStatus.SUCCEEDED, task.status)
@@ -87,17 +83,13 @@ class RuntimeTest(unittest.IsolatedAsyncioTestCase):
             await service.run("demo", task.id)
 
         interrupted = repository.get("demo", task.id)
-        report_entry = next(
-            item for item in interrupted.ledger if item.action == "report.compose"
-        )
+        report_entry = next(item for item in interrupted.ledger if item.action == "report.compose")
         self.assertEqual("UNKNOWN", report_entry.status)
 
         resumed = await service.run("demo", task.id)
         self.assertEqual(TaskStatus.WAITING_APPROVAL, resumed.status)
         self.assertEqual(1, adapter.execution_count["report.compose"])
-        report_entries = [
-            item for item in resumed.ledger if item.action == "report.compose"
-        ]
+        report_entries = [item for item in resumed.ledger if item.action == "report.compose"]
         self.assertEqual(1, len(report_entries))
         self.assertEqual("CONFIRMED", report_entries[0].status)
 
@@ -120,9 +112,7 @@ class RuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(TaskStatus.PLAN_READY, task.status)
         task = self.service.cancel("demo", task.id)
         self.assertEqual(TaskStatus.CANCELLED, task.status)
-        self.assertTrue(
-            all(item.status is StepStatus.CANCELLED for item in task.steps.values())
-        )
+        self.assertTrue(all(item.status is StepStatus.CANCELLED for item in task.steps.values()))
         with self.assertRaises(ValueError):
             await self.service.run("demo", task.id)
 

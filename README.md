@@ -1,6 +1,6 @@
 # WorkPilot
 
-WorkPilot 是一个面向企业跨系统办公流程的任务执行 Agent。当前仓库提供一套可直接运行的纵向 MVP，并已完成 V2 的持久化与 Temporal 基础控制流：它把自然语言目标转换为任务 DAG，在 Fake 企业系统中执行，遇到外部写入时展示真实参数并等待审批，最后通过远端状态查询验证结果并生成审计回放。任务、审批、账本、验证、Artifact、事件与检查点可以保存到 PostgreSQL，并由独立 Worker 推进。
+WorkPilot 是一个面向企业跨系统办公流程的安全执行 Agent。它把自然语言目标转换为结构化任务 DAG，在确定性策略、人工审批、幂等账本和远端验证的约束下执行。当前已有可替换的 ModelGateway、结构化 Planner、上下文信任标签与预算、PostgreSQL 持久化和 Temporal 长任务控制流。
 
 详细产品与技术方案见 [MVP 完整实现方案](docs/mvp-implementation-plan.md)，本次实现边界见 [初版架构与状态](docs/initial-architecture.md)，持久化与可靠执行路线见 [V2 修改设计方案](docs/v2-design-plan.md)，面向 Agent 岗位的能力盘点、证据标准和后续实施顺序见 [V3 面试竞争力与产品完整性方案](docs/v3-interview-advantage-plan.md)。
 
@@ -8,6 +8,11 @@ WorkPilot 是一个面向企业跨系统办公流程的任务执行 Agent。当�
 
 - FastAPI 任务、审批、暂停、恢复、取消、Artifact 与回放接口；
 - 确定性周报 Demo Planner，以及 DAG 无环、能力、步骤数和风险校验；
+- ModelGateway Protocol、OpenAI-compatible 云模型 Provider 和可重现 Fake Provider；
+- 结构化 Planner：JSON Schema 输出、一次修复、确定性校验与 DemoPlanner 安全回退；
+- ContextBuilder：分层来源、trust label、Prompt Injection 标记、Tool Search 和 Token 预算裁剪；
+- 模型请求记录 provider/model/request id、Prompt/Schema 版本、Token、延迟、重试、成本和 trace id，默认不持久化 Prompt 正文；
+- 重规划 Plan Diff，并禁止删除或篡改已成功步骤；
 - R0–R3 策略、R2 参数预览/哈希绑定、R3 拒绝；
 - 邮件、知识、项目更新、报告和任务的 Fake Adapter；
 - tenant 范围内的任务与知识数据访问；
@@ -31,6 +36,11 @@ uv run workpilot
 ```
 
 打开 <http://127.0.0.1:8000> 使用工作台，接口文档位于 <http://127.0.0.1:8000/docs>。
+
+默认使用确定性 Demo Planner。离线验证结构化链路可设置
+`WORKPILOT_PLANNER_MODE=fake`；调用 OpenAI-compatible 云模型时设置
+`WORKPILOT_PLANNER_MODE=openai`、`WORKPILOT_MODEL_API_KEY`、`WORKPILOT_MODEL_BASE_URL`
+和 `WORKPILOT_MODEL_NAME`。可同时设置 Token/成本硬上限，密钥只在 Provider 边界使用。
 
 未配置数据库时使用内存仓储。需要跨重启保存任务时，可以先使用 SQLite：
 
@@ -101,4 +111,4 @@ tests/                    单元、运行时、安全与 API 测试
 
 ## 当前边界
 
-当前版本用于验证安全执行闭环，不宣称已经达到 V2 最终验收目标。PostgreSQL/Alembic 持久层和 Temporal 基础控制流已经实现；未设置 `WORKPILOT_DATABASE_URL` 与 `WORKPILOT_TEMPORAL_TARGET` 时仍使用进程内直连模式。真实 SaaS/MCP、Playwright 多模态观察、PDF/DOCX/XLSX 解析、对象存储、OpenTelemetry 后端、固定评测集和 Next.js 前端仍属于后续迭代。
+当前已完成 V3 阶段 A 中的模型与上下文核心链路，但不宣称整个阶段 A 或 V3 最终验收已完成。真实云模型调用需要用户配置密钥，其结果不会伪装为仓库内已跑出的基准数据。固定评测集、真实 SaaS/OAuth/MCP、Worker kill/restart 容器验收、真实 PostgreSQL RLS 对抗测试、文件 RAG、OIDC、可观测后端与产品化前端仍需后续实现和实测。

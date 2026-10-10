@@ -20,6 +20,13 @@ class Settings:
     allowed_recipient_domains: frozenset[str] = frozenset({"example.com"})
     temporal_target: str | None = None
     temporal_task_queue: str = "workpilot-tasks"
+    planner_mode: str = "demo"
+    model_base_url: str = "https://api.openai.com/v1"
+    model_api_key: str | None = None
+    model_name: str = "gpt-4.1-mini"
+    model_input_budget: int = 8_000
+    model_output_budget: int = 2_000
+    model_cost_budget_usd: float = 0.25
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -33,13 +40,16 @@ class Settings:
             host=os.getenv("WORKPILOT_HOST", "127.0.0.1"),
             port=int(os.getenv("WORKPILOT_PORT", "8000")),
             database_url=database_url,
-            auto_create_schema=_as_bool(
-                os.getenv("WORKPILOT_AUTO_CREATE_SCHEMA"), default=False
-            ),
+            auto_create_schema=_as_bool(os.getenv("WORKPILOT_AUTO_CREATE_SCHEMA"), default=False),
             max_steps=int(os.getenv("WORKPILOT_MAX_STEPS", "20")),
             allowed_recipient_domains=domains or frozenset({"example.com"}),
             temporal_target=os.getenv("WORKPILOT_TEMPORAL_TARGET") or None,
-            temporal_task_queue=os.getenv(
-                "WORKPILOT_TEMPORAL_TASK_QUEUE", "workpilot-tasks"
-            ),
+            temporal_task_queue=os.getenv("WORKPILOT_TEMPORAL_TASK_QUEUE", "workpilot-tasks"),
+            planner_mode=os.getenv("WORKPILOT_PLANNER_MODE", "demo").strip().lower(),
+            model_base_url=os.getenv("WORKPILOT_MODEL_BASE_URL", "https://api.openai.com/v1"),
+            model_api_key=os.getenv("WORKPILOT_MODEL_API_KEY") or None,
+            model_name=os.getenv("WORKPILOT_MODEL_NAME", "gpt-4.1-mini"),
+            model_input_budget=int(os.getenv("WORKPILOT_MODEL_INPUT_BUDGET", "8000")),
+            model_output_budget=int(os.getenv("WORKPILOT_MODEL_OUTPUT_BUDGET", "2000")),
+            model_cost_budget_usd=float(os.getenv("WORKPILOT_MODEL_COST_BUDGET_USD", "0.25")),
         )

@@ -60,9 +60,7 @@ class SQLAlchemyTaskRepository(TaskRepository):
         self.engine = engine
         if create_schema:
             Base.metadata.create_all(engine)
-        self._session_factory = sessionmaker(
-            engine, class_=Session, expire_on_commit=False
-        )
+        self._session_factory = sessionmaker(engine, class_=Session, expire_on_commit=False)
 
     def add(self, task: TaskRun) -> TaskRun:
         with self._session_factory.begin() as session:
@@ -104,12 +102,15 @@ class SQLAlchemyTaskRepository(TaskRepository):
             )
             if current is None:
                 raise TaskNotFoundError(task.id)
-            previous_event_count = session.scalar(
-                select(TimelineEventRecord.sequence)
-                .where(TimelineEventRecord.task_id == task.id)
-                .order_by(TimelineEventRecord.sequence.desc())
-                .limit(1)
-            ) or 0
+            previous_event_count = (
+                session.scalar(
+                    select(TimelineEventRecord.sequence)
+                    .where(TimelineEventRecord.task_id == task.id)
+                    .order_by(TimelineEventRecord.sequence.desc())
+                    .limit(1)
+                )
+                or 0
+            )
             result = session.execute(
                 update(TaskRunRecord)
                 .where(
@@ -148,9 +149,7 @@ class SQLAlchemyTaskRepository(TaskRepository):
     def close(self) -> None:
         self.engine.dispose()
 
-    def pending_outbox(
-        self, tenant_id: str, limit: int = 100
-    ) -> Sequence[dict[str, object]]:
+    def pending_outbox(self, tenant_id: str, limit: int = 100) -> Sequence[dict[str, object]]:
         with self._session_factory() as session:
             self._set_tenant(session, tenant_id)
             statement = (
@@ -225,9 +224,7 @@ class SQLAlchemyTaskRepository(TaskRepository):
             session.execute(delete(model).where(model.task_id == task_id))
 
     @staticmethod
-    def _replace_children(
-        session: Session, record: TaskRunRecord, task: TaskRun
-    ) -> None:
+    def _replace_children(session: Session, record: TaskRunRecord, task: TaskRun) -> None:
         session.add_all(
             TaskStepRecord(
                 task_id=task.id,

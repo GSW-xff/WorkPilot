@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from uuid import uuid4
 
 from workpilot.connectors.base import CapabilityRegistry
@@ -19,7 +20,7 @@ from workpilot.models import (
     VerificationStatus,
     utc_now,
 )
-from workpilot.planner import DemoPlanner
+from workpilot.planner import DemoPlanner, StructuredPlanner, diff_plans
 from workpilot.policy import PolicyEngine
 from workpilot.repository import TaskRepository
 from workpilot.security import idempotency_key, parameter_hash, redact
@@ -33,7 +34,7 @@ class WorkPilotService:
         self,
         repository: TaskRepository,
         registry: CapabilityRegistry,
-        planner: DemoPlanner | None = None,
+        planner: DemoPlanner | StructuredPlanner | None = None,
         policy: PolicyEngine | None = None,
         max_steps: int = 20,
         allowed_recipient_domains: set[str] | None = None,
@@ -52,6 +53,110 @@ class WorkPilotService:
         goal: str,
         recipient: str = "team@example.com",
     ) -> TaskRun:
+        if isinstance(self.planner, StructuredPlanner):
+            raise RuntimeError("structured planner requires create_task_async")
+        task = self._new_task(tenant_id, user_id, goal)
+        try:
+            plan = self.planner.plan(goal, recipient)
+            validate_plan(plan, self.registry.names, self.registry.risks, self.max_steps)
+            self._validate_recipient_domains(plan)
+        except Exception as exc:
+            return self._store_planning_failure(task, exc)
+        return self._store_plan(task, plan)
+
+    async def create_task_async(
+        self,
+        tenant_id: str,
+        user_id: str,
+        goal: str,
+        recipient: str = "team@example.com",
+    ) -> TaskRun:
+        if not isinstance(self.planner, StructuredPlanner):
+            return self.create_task(tenant_id, user_id, goal, recipient)
+        task = self._new_task(tenant_id, user_id, goal)
+        trace_id = uuid4().hex
+        try:
+            outcome = await self.planner.plan(
+                goal,
+                recipient,
+                metadata={
+                    "trace_id": trace_id,
+                    "tenant_id": tenant_id,
+                    "task_id": task.id,
+                },
+            )
+            self._validate_recipient_domains(outcome.plan)
+        except Exception as exc:
+            return self._store_planning_failure(task, exc)
+
+        snapshot_id = f"context-{uuid4().hex[:12]}"
+        snapshot = outcome.context_snapshot
+        safe_messages = [
+            {
+                "source": item["source"],
+                "trust": item["trust"],
+                "content_length": len(item["content"]),
+                "content_sha256": hashlib.sha256(item["content"].encode()).hexdigest(),
+            }
+            for item in snapshot["messages"]
+        ]
+        task.artifacts.append(
+            Artifact(
+                id=snapshot_id,
+                tenant_id=tenant_id,
+                task_id=task.id,
+                type="context_snapshot",
+                content={
+                    "messages": safe_messages,
+                    "included_sources": snapshot["included_sources"],
+                    "omitted_sources": snapshot["omitted_sources"],
+                    "injection_markers": snapshot["injection_markers"],
+                    "estimated_tokens": snapshot["estimated_tokens"],
+                    "trace_id": trace_id,
+                    "sensitive_content_recorded": False,
+                },
+            )
+        )
+        assert outcome.plan.planning is not None
+        outcome.plan.planning.context_snapshot_id = snapshot_id
+        self._event(
+            task,
+            "planner.completed",
+            "结构化计划已生成" if not outcome.used_fallback else "模型规划失败，已安全回退",
+            details={
+                "trace_id": trace_id,
+                "used_fallback": outcome.used_fallback,
+                "model_calls": len(outcome.model_calls),
+                "validation_error_count": len(outcome.validation_errors),
+                "context_snapshot_id": snapshot_id,
+            },
+        )
+        return self._store_plan(task, outcome.plan)
+
+    def replan(self, tenant_id: str, task_id: str, candidate) -> tuple[TaskRun, dict]:
+        task = self.repository.get(tenant_id, task_id)
+        if task.plan is None:
+            raise ValueError("task has no existing plan")
+        validate_plan(candidate, self.registry.names, self.registry.risks, self.max_steps)
+        self._validate_recipient_domains(candidate)
+        candidate.version = task.plan.version + 1
+        completed = {
+            step_id for step_id, run in task.steps.items() if run.status is StepStatus.SUCCEEDED
+        }
+        plan_diff = diff_plans(task.plan, candidate, completed)
+        previous_runs = task.steps
+        task.plan = candidate
+        task.steps = {
+            step.id: previous_runs.get(step.id, StepRun(step=step)).model_copy(
+                update={"step": step}
+            )
+            for step in candidate.steps
+        }
+        self._event(task, "plan.replanned", "执行计划已更新", details=plan_diff)
+        self._checkpoint(task)
+        return self.repository.save(task, expected_version=task.version), plan_diff
+
+    def _new_task(self, tenant_id: str, user_id: str, goal: str) -> TaskRun:
         task = TaskRun(
             id=f"taskrun-{uuid4().hex[:12]}",
             tenant_id=tenant_id,
@@ -60,13 +165,13 @@ class WorkPilotService:
         )
         self._event(task, "task.created", "任务已创建")
         self._transition(task, TaskStatus.PLANNING, "planner.started", "开始生成执行计划")
-        try:
-            plan = self.planner.plan(goal, recipient)
-            validate_plan(plan, self.registry.names, self.registry.risks, self.max_steps)
-            self._validate_recipient_domains(plan)
-        except Exception as exc:
-            self._transition(task, TaskStatus.FAILED, "plan.failed", str(exc))
-            return self.repository.add(task)
+        return task
+
+    def _store_planning_failure(self, task: TaskRun, exc: Exception) -> TaskRun:
+        self._transition(task, TaskStatus.FAILED, "plan.failed", str(exc))
+        return self.repository.add(task)
+
+    def _store_plan(self, task: TaskRun, plan) -> TaskRun:
         task.plan = plan
         task.steps = {step.id: StepRun(step=step) for step in plan.steps}
         self._transition(task, TaskStatus.PLAN_READY, "plan.ready", "执行计划已通过确定性校验")
@@ -131,9 +236,7 @@ class WorkPilotService:
             step_run.status = StepStatus.RUNNING
             step_run.started_at = utc_now()
             self._event(task, "step.started", step.description, step.id)
-            key = idempotency_key(
-                tenant_id, task.id, step.id, step.capability, action.parameters
-            )
+            key = idempotency_key(tenant_id, task.id, step.id, step.capability, action.parameters)
             existing = next((item for item in task.ledger if item.idempotency_key == key), None)
             if existing is not None and existing.status in {"CONFIRMED", "EXECUTED"}:
                 result = self._result_from_ledger(existing)
@@ -157,9 +260,7 @@ class WorkPilotService:
                     )
                     task = self.repository.save(task, expected_version=task.version)
                     step_run = task.steps[step_id]
-                    existing = next(
-                        item for item in task.ledger if item.idempotency_key == key
-                    )
+                    existing = next(item for item in task.ledger if item.idempotency_key == key)
 
                 result = await adapter.lookup(action, key)
                 if result is None:
