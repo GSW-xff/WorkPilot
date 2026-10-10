@@ -1,9 +1,12 @@
+import hashlib
+import hmac
 import unittest
 from unittest.mock import AsyncMock, Mock
 
 import httpx
 
 from workpilot.api import create_app
+from workpilot.config import Settings
 
 
 class ApiTest(unittest.IsolatedAsyncioTestCase):
@@ -154,6 +157,45 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
             response = await self.client.post(f"/v1/tasks/{task_id}/{action}", headers=self.headers)
             self.assertEqual(200, response.status_code)
         self.assertEqual(3, temporal.signal.await_count)
+
+
+class ConnectorApiTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.app = create_app(
+            settings=Settings(
+                github_client_id="client",
+                github_client_secret="secret",
+                github_oauth_state_secret="state-secret",
+                github_webhook_secret="webhook-secret",
+            )
+        )
+        self.client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=self.app), base_url="http://test"
+        )
+
+    async def asyncTearDown(self) -> None:
+        await self.client.aclose()
+        self.app.state.service.repository.close()
+
+    async def test_authorization_url_and_signed_webhook_endpoints(self) -> None:
+        authorized = await self.client.get(
+            "/v1/connectors/github/authorize",
+            headers={"X-Tenant-ID": "tenant-a", "X-User-ID": "user-a"},
+        )
+        self.assertEqual(200, authorized.status_code)
+        self.assertIn("github.com/login/oauth/authorize", authorized.json()["authorization_url"])
+
+        body = b'{"action":"opened"}'
+        signature = "sha256=" + hmac.new(b"webhook-secret", body, hashlib.sha256).hexdigest()
+        webhook = await self.client.post(
+            "/v1/connectors/github/webhook",
+            content=body,
+            headers={
+                "X-Hub-Signature-256": signature,
+                "X-GitHub-Delivery": "delivery-api-1",
+            },
+        )
+        self.assertEqual({"accepted": True, "action": "opened"}, webhook.json())
 
 
 if __name__ == "__main__":

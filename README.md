@@ -13,6 +13,7 @@ WorkPilot 是一个面向企业跨系统办公流程的安全执行 Agent。它�
 - ContextBuilder：分层来源、trust label、Prompt Injection 标记、Tool Search 和 Token 预算裁剪；
 - 模型请求记录 provider/model/request id、Prompt/Schema 版本、Token、延迟、重试、成本和 trace id，默认不持久化 Prompt 正文；
 - 重规划 Plan Diff，并禁止删除或篡改已成功步骤；
+- GitHub Issues OAuth/HTTP Adapter：Secret 引用隔离、限流/熔断/超时、远端幂等查询、Webhook 签名与防重放；
 - R0–R3 策略、R2 参数预览/哈希绑定、R3 拒绝；
 - 邮件、知识、项目更新、报告和任务的 Fake Adapter；
 - tenant 范围内的任务与知识数据访问；
@@ -41,6 +42,9 @@ uv run workpilot
 `WORKPILOT_PLANNER_MODE=fake`；调用 OpenAI-compatible 云模型时设置
 `WORKPILOT_PLANNER_MODE=openai`、`WORKPILOT_MODEL_API_KEY`、`WORKPILOT_MODEL_BASE_URL`
 和 `WORKPILOT_MODEL_NAME`。可同时设置 Token/成本硬上限，密钥只在 Provider 边界使用。
+
+GitHub OAuth App 配置、Scope、Secret 边界和契约测试说明见
+[GitHub Issues 连接器](docs/github-connector.md)。
 
 未配置数据库时使用内存仓储。需要跨重启保存任务时，可以先使用 SQLite：
 
@@ -130,4 +134,4 @@ evals/                    60 条版本化数据集与可重复基准报告
 
 ## 当前边界
 
-当前已完成 V3 阶段 A 的模型/上下文核心链路、60 条固定任务集和确定性基准报告，但不宣称真实模型验收或 V3 最终验收已完成。真实云模型调用需要用户配置密钥，其结果不会伪装为仓库内已跑出的基准数据。真实 SaaS/OAuth/MCP、Worker kill/restart 容器验收、真实 PostgreSQL RLS 对抗测试、文件 RAG、OIDC、可观测后端与产品化前端仍需后续实现和实测。
+当前已完成 V3 阶段 A 的模型/上下文核心链路、60 条固定任务集和确定性基准报告，并完成 GitHub OAuth/Adapter 契约实现与真实 Temporal 本地服务恢复测试，但不宣称真实模型、GitHub 沙箱 E2E 或 V3 最终验收已完成。真实云模型和 GitHub OAuth 调用需要用户配置密钥。MCP、真实 PostgreSQL RLS 对抗测试、文件 RAG、OIDC、可观测后端与产品化前端仍需后续实现和实测。
