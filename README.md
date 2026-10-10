@@ -14,6 +14,7 @@ WorkPilot 是一个面向企业跨系统办公流程的安全执行 Agent。它�
 - 模型请求记录 provider/model/request id、Prompt/Schema 版本、Token、延迟、重试、成本和 trace id，默认不持久化 Prompt 正文；
 - 重规划 Plan Diff，并禁止删除或篡改已成功步骤；
 - GitHub Issues OAuth/HTTP Adapter：Secret 引用隔离、限流/熔断/超时、远端幂等查询、Webhook 签名与防重放；
+- OpenTelemetry/OTLP Trace、Prometheus 指标、Tempo 与 Grafana 本地观测栈；
 - R0–R3 策略、R2 参数预览/哈希绑定、R3 拒绝；
 - 邮件、知识、项目更新、报告和任务的 Fake Adapter；
 - tenant 范围内的任务与知识数据访问；
@@ -45,6 +46,8 @@ uv run workpilot
 
 GitHub OAuth App 配置、Scope、Secret 边界和契约测试说明见
 [GitHub Issues 连接器](docs/github-connector.md)。
+本地 Trace/Metrics 启动方式、敏感字段边界和故障 Runbook 见
+[可观测性与 Runbook](docs/observability.md)。
 
 未配置数据库时使用内存仓储。需要跨重启保存任务时，可以先使用 SQLite：
 
@@ -134,4 +137,4 @@ evals/                    60 条版本化数据集与可重复基准报告
 
 ## 当前边界
 
-当前已完成 V3 阶段 A 的模型/上下文核心链路、60 条固定任务集和确定性基准报告，并完成 GitHub OAuth/Adapter 契约实现与真实 Temporal 本地服务恢复测试，但不宣称真实模型、GitHub 沙箱 E2E 或 V3 最终验收已完成。真实云模型和 GitHub OAuth 调用需要用户配置密钥。MCP、真实 PostgreSQL RLS 对抗测试、文件 RAG、OIDC、可观测后端与产品化前端仍需后续实现和实测。
+当前已完成 V3 阶段 A 的模型/上下文核心链路、60 条固定任务集和确定性基准报告，并完成 GitHub OAuth/Adapter 契约、真实 Temporal 本地服务恢复测试与本地可观测栈，但不宣称真实模型、GitHub 沙箱 E2E、生产 SLO 或 V3 最终验收已完成。真实云模型和 GitHub OAuth 调用需要用户配置密钥。MCP、真实 PostgreSQL RLS 对抗测试、文件 RAG、OIDC 与产品化前端仍需后续实现和实测。

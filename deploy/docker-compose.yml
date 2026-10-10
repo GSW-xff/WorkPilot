@@ -27,6 +27,8 @@ services:
       WORKPILOT_ALLOWED_RECIPIENT_DOMAINS: example.com
       WORKPILOT_TEMPORAL_TARGET: temporal:7233
       WORKPILOT_TEMPORAL_TASK_QUEUE: workpilot-tasks
+      WORKPILOT_OTLP_ENDPOINT: http://otel-collector:4317
+      WORKPILOT_SERVICE_NAME: workpilot-api
     command:
       - /bin/sh
       - -c
@@ -50,6 +52,8 @@ services:
       WORKPILOT_TEMPORAL_TARGET: temporal:7233
       WORKPILOT_TEMPORAL_TASK_QUEUE: workpilot-tasks
       WORKPILOT_ALLOWED_RECIPIENT_DOMAINS: example.com
+      WORKPILOT_OTLP_ENDPOINT: http://otel-collector:4317
+      WORKPILOT_SERVICE_NAME: workpilot-worker
     command: ["python", "-m", "workpilot.worker"]
     depends_on:
       api:
@@ -78,5 +82,51 @@ services:
       timeout: 5s
       retries: 30
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    command: ["--config=/etc/otelcol/config.yml"]
+    volumes:
+      - ./observability/otel-collector.yml:/etc/otelcol/config.yml:ro
+    ports:
+      - "4317:4317"
+    depends_on:
+      - tempo
+
+  tempo:
+    image: grafana/tempo:2.7.2
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - ./observability/tempo.yml:/etc/tempo.yml:ro
+      - workpilot-tempo:/var/tempo
+    ports:
+      - "3200:3200"
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: workpilot
+    volumes:
+      - ./observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./observability/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./observability/workpilot-dashboard.json:/var/lib/grafana/dashboards/workpilot.json:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - tempo
+
 volumes:
   workpilot-postgres:
+  workpilot-tempo:

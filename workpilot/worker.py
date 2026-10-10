@@ -7,6 +7,7 @@ from temporalio.worker import Worker
 
 from workpilot.api import build_service
 from workpilot.config import Settings
+from workpilot.telemetry import configure_otlp
 from workpilot.workflows.activities import TaskActivities
 from workpilot.workflows.temporal import TaskWorkflow
 
@@ -17,6 +18,8 @@ async def run_worker() -> None:
         raise RuntimeError("WORKPILOT_DATABASE_URL is required for a separate worker")
     if not settings.temporal_target:
         raise RuntimeError("WORKPILOT_TEMPORAL_TARGET is required for the worker")
+    if settings.otlp_endpoint:
+        configure_otlp(settings.otlp_endpoint, settings.service_name)
 
     client = await Client.connect(settings.temporal_target)
     service, _adapter = build_service(settings=settings)
