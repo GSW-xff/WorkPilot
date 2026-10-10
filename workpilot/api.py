@@ -19,6 +19,7 @@ from workpilot.connectors.fake import FakeEnterpriseAdapter
 from workpilot.connectors.github import GitHubOAuthManager, GitHubWebhookVerifier
 from workpilot.credentials import InMemorySecretStore
 from workpilot.db.repository import SQLAlchemyTaskRepository, create_database_engine
+from workpilot.mcp import MCPServer
 from workpilot.model_gateway import (
     DeterministicModelGateway,
     ModelGateway,
@@ -158,6 +159,7 @@ def create_app(
         if settings.github_webhook_secret
         else None
     )
+    mcp_server = MCPServer("workpilot-local-v1", adapter)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -194,6 +196,7 @@ def create_app(
     app.state.temporal = None
     app.state.github_oauth = github_oauth
     app.state.github_webhook = github_webhook
+    app.state.mcp_server = mcp_server
     app.state.idempotent_creates = {}
 
     @app.middleware("http")
@@ -523,6 +526,15 @@ def create_app(
             return {"accepted": True, "action": payload.get("action")}
         except (ConnectorError, json.JSONDecodeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/mcp")
+    async def mcp_endpoint(
+        request: Request,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, _ = context
+        payload = await request.json()
+        return await mcp_server.handle(payload, tenant_id)
 
     return app
 
