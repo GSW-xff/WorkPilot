@@ -4,11 +4,17 @@ import json
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal, cast
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    PlainTextResponse,
+    Response,
+    StreamingResponse,
+)
 from opentelemetry import context as otel_context
 from opentelemetry.propagate import extract
 from pydantic import BaseModel, Field
@@ -20,6 +26,7 @@ from workpilot.connectors.fake import FakeEnterpriseAdapter
 from workpilot.connectors.github import GitHubOAuthManager, GitHubWebhookVerifier
 from workpilot.credentials import InMemorySecretStore
 from workpilot.db.repository import SQLAlchemyTaskRepository, create_database_engine
+from workpilot.knowledge import KnowledgeError, KnowledgeService, LocalObjectStore
 from workpilot.mcp import MCPServer
 from workpilot.model_gateway import (
     DeterministicModelGateway,
@@ -55,6 +62,12 @@ class RejectionRequest(BaseModel):
 class KnowledgeDocumentRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     content: str = Field(min_length=1, max_length=1_000_000)
+
+
+class KnowledgeSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2_000)
+    top_k: int = Field(default=5, ge=1, le=20)
+    mode: Literal["lexical", "vector", "hybrid_rrf"] = "hybrid_rrf"
 
 
 async def tenant_context(
@@ -160,6 +173,10 @@ def create_app(
         configure_otlp(settings.otlp_endpoint, settings.service_name)
     service, adapter = build_service(repository, settings)
     auth_verifier = _build_auth_verifier(settings)
+    knowledge = KnowledgeService(
+        LocalObjectStore(Path(settings.knowledge_object_dir)),
+        max_file_bytes=settings.knowledge_max_file_bytes,
+    )
     secret_store = InMemorySecretStore()
     github_oauth = None
     if (
@@ -217,6 +234,7 @@ def create_app(
     app.state.service = service
     app.state.auth_verifier = auth_verifier
     app.state.auth_mode = settings.auth_mode
+    app.state.knowledge = knowledge
     app.state.fake_adapter = adapter
     app.state.temporal = None
     app.state.github_oauth = github_oauth
@@ -499,6 +517,103 @@ def create_app(
         }
         adapter.add_document(document)
         return {"id": document["id"], "title": document["title"]}
+
+    @app.post("/v1/knowledge/files", status_code=201)
+    async def upload_knowledge_file(
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+        file: Annotated[UploadFile, File()],
+        visibility: Annotated[str, Form()] = "private",
+    ):
+        tenant_id, user_id = context
+        if visibility not in {"private", "tenant"}:
+            raise HTTPException(status_code=422, detail="visibility must be private or tenant")
+        content = await file.read(settings.knowledge_max_file_bytes + 1)
+        try:
+            return knowledge.ingest(
+                tenant_id=tenant_id,
+                owner_id=user_id,
+                filename=file.filename or "upload",
+                media_type=file.content_type or "application/octet-stream",
+                content=content,
+                visibility=cast(Literal["private", "tenant"], visibility),
+            )
+        except KnowledgeError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/v1/knowledge/files")
+    async def list_knowledge_files(
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, user_id = context
+        return knowledge.list_documents(tenant_id, user_id)
+
+    @app.get("/v1/knowledge/files/{document_id}")
+    async def get_knowledge_file(
+        document_id: str,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, user_id = context
+        try:
+            return knowledge.get(tenant_id, user_id, document_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="document not found") from exc
+
+    @app.get("/v1/knowledge/files/{document_id}/content")
+    async def open_knowledge_file(
+        document_id: str,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, user_id = context
+        try:
+            document = knowledge.get(tenant_id, user_id, document_id)
+            content = knowledge.original(tenant_id, user_id, document_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="document not found") from exc
+        safe_filename = document.filename.replace('"', "")
+        return Response(
+            content,
+            media_type=document.media_type,
+            headers={"Content-Disposition": f'inline; filename="{safe_filename}"'},
+        )
+
+    @app.delete("/v1/knowledge/files/{document_id}", status_code=204)
+    async def delete_knowledge_file(
+        document_id: str,
+        request: Request,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ) -> Response:
+        tenant_id, user_id = context
+        principal: Principal = request.state.principal
+        try:
+            knowledge.delete(
+                tenant_id,
+                user_id,
+                document_id,
+                is_admin=principal.has_role("admin"),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="document not found") from exc
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return Response(status_code=204)
+
+    @app.post("/v1/knowledge/search")
+    async def search_knowledge(
+        body: KnowledgeSearchRequest,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, user_id = context
+        return {
+            "query": body.query,
+            "mode": body.mode,
+            "citations": knowledge.search(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                query=body.query,
+                top_k=body.top_k,
+                mode=body.mode,
+            ),
+        }
 
     @app.get("/v1/connectors/github/authorize")
     async def github_authorize(

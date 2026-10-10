@@ -46,6 +46,15 @@ INJECTION_PATTERNS = (
 )
 
 
+def detect_prompt_injection(content: str) -> list[str]:
+    """Return stable pattern identifiers without interpreting external content."""
+    return [
+        f"pattern-{index}"
+        for index, pattern in enumerate(INJECTION_PATTERNS, 1)
+        if pattern.search(content)
+    ]
+
+
 class ContextBuilder:
     def __init__(self, max_tokens: int = 6_000) -> None:
         self.max_tokens = max_tokens
@@ -102,7 +111,7 @@ class ContextBuilder:
         for item in sorted(base, key=lambda value: value.priority, reverse=True):
             content = item.content
             if item.trust is TrustLevel.UNTRUSTED:
-                if any(pattern.search(content) for pattern in INJECTION_PATTERNS):
+                if detect_prompt_injection(content):
                     markers.append(item.source)
                 content = (
                     f"<external_data source={item.source!r} trust='untrusted'>\n"

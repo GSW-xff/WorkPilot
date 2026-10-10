@@ -38,6 +38,8 @@ class Settings:
     oidc_issuer: str | None = None
     oidc_audience: str | None = None
     oidc_jwks_url: str | None = None
+    knowledge_object_dir: str = "/tmp/workpilot-objects"
+    knowledge_max_file_bytes: int = 10 * 1024 * 1024
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -77,4 +79,10 @@ class Settings:
             oidc_issuer=os.getenv("WORKPILOT_OIDC_ISSUER") or None,
             oidc_audience=os.getenv("WORKPILOT_OIDC_AUDIENCE") or None,
             oidc_jwks_url=os.getenv("WORKPILOT_OIDC_JWKS_URL") or None,
+            knowledge_object_dir=os.getenv(
+                "WORKPILOT_KNOWLEDGE_OBJECT_DIR", "/tmp/workpilot-objects"
+            ),
+            knowledge_max_file_bytes=int(
+                os.getenv("WORKPILOT_KNOWLEDGE_MAX_FILE_BYTES", str(10 * 1024 * 1024))
+            ),
         )
