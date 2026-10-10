@@ -414,6 +414,7 @@ def create_app(
         for name, relative in {
             "agent": Path("baseline-v1/eval-report.json"),
             "retrieval": Path("retrieval-v1/report.json"),
+            "security": Path("security-v1/report.json"),
         }.items():
             path = root / relative
             reports[name] = json.loads(path.read_text()) if path.exists() else None

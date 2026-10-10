@@ -59,6 +59,7 @@ class ProductConsoleApiTest(unittest.IsolatedAsyncioTestCase):
         evaluations = await self.client.get("/v1/evaluations/latest", headers=self.headers)
         self.assertEqual(60, evaluations.json()["agent"]["dataset_cases"])
         self.assertEqual(10, evaluations.json()["retrieval"]["case_count"])
+        self.assertEqual(20, evaluations.json()["security"]["case_count"])
 
     def test_console_contains_required_product_surfaces(self) -> None:
         page = (ROOT / "apps" / "web" / "index.html").read_text()

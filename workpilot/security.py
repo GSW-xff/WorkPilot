@@ -6,6 +6,12 @@ import re
 from typing import Any
 
 SECRET_KEYS = {"authorization", "credential", "password", "secret", "token"}
+SECRET_PATTERNS = (
+    re.compile(r"Bearer\s+[A-Za-z0-9._~-]+", re.IGNORECASE),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
+)
 
 
 def canonical_json(value: Any) -> str:
@@ -36,5 +42,8 @@ def redact(value: Any) -> Any:
     if isinstance(value, list):
         return [redact(item) for item in value]
     if isinstance(value, str):
-        return re.sub(r"Bearer\s+[A-Za-z0-9._~-]+", "Bearer [REDACTED]", value)
+        redacted = value
+        for pattern in SECRET_PATTERNS:
+            redacted = pattern.sub("[REDACTED]", redacted)
+        return redacted
     return value

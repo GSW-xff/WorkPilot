@@ -23,6 +23,11 @@ class SecurityTest(unittest.TestCase):
         self.assertEqual("[REDACTED]", sanitized["nested"][0]["password"])
         self.assertNotIn("abc.def-123", sanitized["message"])
 
+    def test_redaction_handles_provider_key_shapes_in_free_text(self) -> None:
+        sanitized = redact("sk-1234567890abcdefghijkl ghp_123456789012345678901234567890")
+        self.assertNotIn("sk-", sanitized)
+        self.assertNotIn("ghp_", sanitized)
+
 
 if __name__ == "__main__":
     unittest.main()
