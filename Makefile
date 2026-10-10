@@ -1,4 +1,7 @@
-.PHONY: dev db-up db-down migrate test test-browser test-postgres test-temporal lint typecheck check
+.PHONY: benchmark dev db-up db-down helm-lint migrate test test-browser test-postgres test-temporal lint typecheck check
+
+benchmark:
+	uv run workpilot-benchmark
 
 dev:
 	uv run workpilot
@@ -11,6 +14,9 @@ db-down:
 
 migrate:
 	uv run alembic upgrade head
+
+helm-lint:
+	helm lint deploy/helm/workpilot
 
 test:
 	uv run pytest

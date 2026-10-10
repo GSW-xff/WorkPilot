@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workpilot-worker
+  labels:
+    {{- include "workpilot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels: {app.kubernetes.io/name: workpilot, app.kubernetes.io/component: worker}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: workpilot, app.kubernetes.io/component: worker}
+    spec:
+      serviceAccountName: {{ include "workpilot.name" . }}
+      terminationGracePeriodSeconds: 60
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: worker
+          image: {{ include "workpilot.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["python", "-m", "workpilot.worker"]
+          env:
+            - name: WORKPILOT_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.config.databaseSecret }}, key: {{ .Values.config.databaseKey }}}}
+            - {name: WORKPILOT_TEMPORAL_TARGET, value: {{ .Values.config.temporalTarget | quote }}}
+            - {name: WORKPILOT_TEMPORAL_TASK_QUEUE, value: {{ .Values.config.temporalTaskQueue | quote }}}
+            - {name: WORKPILOT_OTLP_ENDPOINT, value: {{ .Values.config.otlpEndpoint | quote }}}
+            - {name: WORKPILOT_SERVICE_NAME, value: workpilot-worker}
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import workpilot.worker"]
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 256Mi}}]

@@ -1,0 +1,37 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: workpilot-api}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: workpilot, app.kubernetes.io/component: api}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: workpilot-worker}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: workpilot, app.kubernetes.io/component: worker}
+{{- if .Values.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: workpilot-default-deny-and-required-egress}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: workpilot}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports: [{protocol: TCP, port: 8000}]
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 5432}
+        - {protocol: TCP, port: 7233}
+        - {protocol: TCP, port: 4317}
+{{- end }}

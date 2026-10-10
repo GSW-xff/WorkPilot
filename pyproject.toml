@@ -41,10 +41,11 @@ workpilot = "workpilot.__main__:main"
 workpilot-eval = "workpilot.evaluation:main"
 workpilot-retrieval-eval = "workpilot.retrieval_evaluation:main"
 workpilot-security-eval = "workpilot.security_evaluation:main"
+workpilot-benchmark = "benchmarks.api_load:main"
 workpilot-worker = "workpilot.worker:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["workpilot"]
+packages = ["workpilot", "benchmarks"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,34 @@
+image:
+  repository: ghcr.io/example/workpilot
+  tag: "0.2.0"
+  digest: ""
+  pullPolicy: IfNotPresent
+
+api:
+  replicas: 2
+  resources:
+    requests: {cpu: 100m, memory: 192Mi}
+    limits: {cpu: 1000m, memory: 768Mi}
+
+worker:
+  replicas: 2
+  resources:
+    requests: {cpu: 200m, memory: 256Mi}
+    limits: {cpu: 1500m, memory: 1Gi}
+
+config:
+  databaseSecret: workpilot-database
+  databaseKey: url
+  temporalTarget: temporal-frontend.default.svc:7233
+  temporalTaskQueue: workpilot-tasks
+  otlpEndpoint: http://otel-collector.default.svc:4317
+
+autoscaling:
+  enabled: false
+  minReplicaCount: 2
+  maxReplicaCount: 20
+  prometheusAddress: http://prometheus.default.svc:9090
+  backlogThreshold: "25"
+
+networkPolicy:
+  enabled: true
