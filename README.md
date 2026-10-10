@@ -148,3 +148,10 @@ benchmarks/               可重复 API 延迟、吞吐与容量基线
 ## 当前边界
 
 当前已完成 V3 阶段 A 的模型/上下文核心链路、60 条固定任务集和确定性基准报告，并完成 GitHub OAuth/Adapter 契约、真实 Temporal 本地服务恢复测试、真实 PostgreSQL RLS 对抗测试、本地可观测栈、MCP 只读安全闭环、OIDC/RBAC 鉴权、带 ACL 和引用的文件检索管线、策略化 Playwright 浏览器证据通道、受控 Memory，以及任务/审批/恢复/评测产品控制台，但不宣称真实模型、GitHub 沙箱 E2E、生产 SLO、5 人可用性研究或 V3 最终验收已完成。真实云模型、GitHub OAuth 沙箱和用户研究需要外部账号或真实参与者。认证部署说明见 [docs/authentication.md](docs/authentication.md)，文件管线说明见 [docs/knowledge-pipeline.md](docs/knowledge-pipeline.md)，Memory 边界见 [docs/memory.md](docs/memory.md)，控制台说明见 [docs/product-console.md](docs/product-console.md)，浏览器边界见 [docs/browser-adapter.md](docs/browser-adapter.md)，Helm/供应链见 [docs/deployment-and-supply-chain.md](docs/deployment-and-supply-chain.md)，容量边界见 [docs/performance.md](docs/performance.md)，数据库实测证据见 [docs/reports/postgres-rls.md](docs/reports/postgres-rls.md)。
+
+面试时建议从 [简历证据索引](docs/resume-evidence.md)和 [8 分钟 Demo 脚本](docs/demo-runbook.md)开始；
+V3 C4/关键时序见 [架构图](docs/architecture-v3.md)，SLO 计算口径见
+[SLO、误差预算与告警](docs/slo-and-alerts.md)。未完成的 5 人研究只提供
+[可执行研究协议](docs/user-study-protocol.md)，不伪造参与者或结果。
+最新整体完成度、当前数据与分阶段后续路线见
+[补充方案 4](docs/v4-completion-and-next-steps.md)。

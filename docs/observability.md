@@ -11,6 +11,7 @@ docker compose -f deploy/docker-compose.yml up --build
 
 - WorkPilot：<http://127.0.0.1:8000>
 - Prometheus：<http://127.0.0.1:9090>
+- Alertmanager：<http://127.0.0.1:9093>
 - Grafana：<http://127.0.0.1:3000>
 - Tempo HTTP API：<http://127.0.0.1:3200>
 
@@ -35,14 +36,24 @@ Prompt、文档正文、连接器 Token、动作参数和收件人不进入 Trac
 
 ## 指标
 
-- `api_request_duration_seconds`：API 时延，按 method/status 聚合；
+- `api_request_duration_seconds`：API Histogram，按 method/route/status 聚合；
+- `api_request_total`、`api_request_trace_total`：请求与 WorkPilot Span 完整度；
 - `task_duration_seconds`、`task_success_total`、`task_error_total`；
 - `tool_call_total`、`tool_error_total`、`tool_duplicate_total`；
 - `model_token_usage_total`、`model_cost_usd_total`、`model_latency_seconds`。
+- `policy_denied_total`：确定性策略拒绝信号，不表示越权写入成功。
 
 这些指标不使用 tenant/task/request ID 作为 label，避免 Prometheus 时序基数爆炸。
 
+Prometheus 规则和误差预算口径见 `docs/slo-and-alerts.md`。
+
 ## 首版告警和 Runbook
+
+### API availability or latency budget burn
+
+1. 按 route/status 区分应用错误、依赖错误与单一慢端点；
+2. 查看 `http.request` 子 Span 定位 Planner、DB、Temporal 或 Tool；
+3. 对容量问题先查队列积压与 DB 连接，不用无边界重试掩盖失败。
 
 ### Tool 错误率升高
 
@@ -50,6 +61,23 @@ Prompt、文档正文、连接器 Token、动作参数和收件人不进入 Trac
 2. 用 Tempo 定位对应 `tool.execute` 的 `error.type` 和 retry count；
 3. 区分 rate limit、deadline、provider 5xx 和不可重试契约错误；
 4. `UNKNOWN` 动作进入 `/v1/recovery`，人工重试前必须先查询远端状态。
+
+### Tool errors or policy denials
+
+Policy denial 是预期安全行为：核对风险等级、域名白名单和计划来源。只有正常模板持续被拒绝
+才按回归处理。Tool 错误先按 capability/error_type 分组，再进入恢复中心。
+
+### Task failure or recovery backlog
+
+1. 检查失败、取消和异常的比例，不把取消计为成功；
+2. 对 `UNKNOWN/REQUIRED` 只允许 lookup-before-retry；
+3. 用 Timeline、Checkpoint、Temporal History 和 Ledger 对齐最后一个可确认事实。
+
+### Trace completeness
+
+1. 比较 `api_request_trace_total` 与 `api_request_total`；
+2. 核对 Collector/Tempo 健康、队列和导出错误；
+3. 请求参数和 Prompt 不应为提高完整度而进入 Trace。
 
 ### 模型成本异常
 
@@ -67,5 +95,5 @@ Prompt、文档正文、连接器 Token、动作参数和收件人不进入 Trac
 
 ## 边界
 
-Dashboard 是本地验证配置，不等同于已达成 99.9% 月可用性。当前仓库没有生产
-告警通知渠道，也没有经过持续负载压测；SLO 仍是目标，不是实测成绩。
+Dashboard、规则和本地 Alertmanager 是可执行验证配置，不等同于已达成 99.9% 月可用性。
+当前没有生产通知渠道和持续生产窗口；SLO 仍是目标，不是实测成绩。

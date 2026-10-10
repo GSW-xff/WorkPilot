@@ -35,6 +35,8 @@ class TelemetryTest(unittest.IsolatedAsyncioTestCase):
         metrics = TELEMETRY.metrics.render_prometheus()
         self.assertIn("tool_call_total", metrics)
         self.assertIn("task_duration_seconds_count", metrics)
+        self.assertIn("# TYPE task_duration_seconds histogram", metrics)
+        self.assertIn('task_duration_seconds_bucket{le="0.3",status="waiting_approval"}', metrics)
 
     async def test_model_usage_cost_and_latency_are_observable(self) -> None:
         candidate = DemoPlanner().plan("report").model_dump(mode="json")
@@ -68,6 +70,9 @@ class TelemetryTest(unittest.IsolatedAsyncioTestCase):
             metrics = await client.get("/metrics")
             self.assertEqual(200, metrics.status_code)
             self.assertIn("api_request_duration_seconds", metrics.text)
+            self.assertIn("api_request_total", metrics.text)
+            self.assertIn("api_request_trace_total", metrics.text)
+            self.assertIn('route="/health"', metrics.text)
         app.state.service.repository.close()
 
 

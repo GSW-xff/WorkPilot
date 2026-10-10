@@ -289,11 +289,28 @@ def create_app(
         finally:
             otel_context.detach(token)
         response.headers["X-Request-ID"] = request_id
+        route = str(getattr(request.scope.get("route"), "path", "unmatched"))
+        labels: dict[str, str] = {
+            "method": request.method,
+            "route": route,
+            "status": str(response.status_code),
+        }
+        TELEMETRY.metrics.counter(
+            "api_request_total",
+            method=labels["method"],
+            route=labels["route"],
+            status=labels["status"],
+        )
+        TELEMETRY.metrics.counter(
+            "api_request_trace_total",
+            method=labels["method"],
+            route=labels["route"],
+            status=labels["status"],
+        )
         TELEMETRY.metrics.observe(
             "api_request_duration_seconds",
             time.perf_counter() - started,
-            method=request.method,
-            status=str(response.status_code),
+            **labels,
         )
         return response
 
