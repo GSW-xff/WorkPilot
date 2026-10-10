@@ -1,4 +1,4 @@
-.PHONY: dev db-up db-down migrate test lint typecheck check
+.PHONY: dev db-up db-down migrate test test-temporal lint typecheck check
 
 dev:
 	uv run workpilot
@@ -15,6 +15,9 @@ migrate:
 test:
 	uv run pytest
 
+test-temporal:
+	WORKPILOT_RUN_TEMPORAL_INTEGRATION=1 uv run pytest tests/test_temporal_integration.py
+
 lint:
 	uv run ruff check workpilot tests apps alembic
 
@@ -22,4 +25,3 @@ typecheck:
 	uv run mypy workpilot
 
 check: lint typecheck test
-

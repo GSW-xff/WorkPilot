@@ -131,6 +131,11 @@ class ActionLedgerEntry(BaseModel):
     remote_id: str | None = None
     status: str
     result: dict[str, Any] = Field(default_factory=dict)
+    attempt: int = 0
+    last_error: str | None = None
+    next_retry_at: datetime | None = None
+    reconciliation_status: str = "NOT_REQUIRED"
+    last_attempt_at: datetime | None = None
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -201,6 +206,7 @@ class ActionRequest(BaseModel):
     capability: str
     parameters: dict[str, Any]
     channel: Channel
+    deadline_at: datetime | None = None
 
 
 class ActionPreview(BaseModel):

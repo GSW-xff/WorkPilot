@@ -1,6 +1,6 @@
 import unittest
 
-from workpilot.connectors.base import CapabilityRegistry
+from workpilot.connectors.base import CapabilityRegistry, ConnectorRateLimited
 from workpilot.connectors.fake import FakeEnterpriseAdapter
 from workpilot.models import ActionRequest, ApprovalStatus, Channel, StepStatus, TaskStatus
 from workpilot.repository import InMemoryTaskRepository, TaskNotFoundError
@@ -85,6 +85,9 @@ class RuntimeTest(unittest.IsolatedAsyncioTestCase):
         interrupted = repository.get("demo", task.id)
         report_entry = next(item for item in interrupted.ledger if item.action == "report.compose")
         self.assertEqual("UNKNOWN", report_entry.status)
+        self.assertEqual(1, report_entry.attempt)
+        self.assertEqual("REQUIRED", report_entry.reconciliation_status)
+        self.assertIn("response lost", report_entry.last_error)
 
         resumed = await service.run("demo", task.id)
         self.assertEqual(TaskStatus.WAITING_APPROVAL, resumed.status)
@@ -92,6 +95,50 @@ class RuntimeTest(unittest.IsolatedAsyncioTestCase):
         report_entries = [item for item in resumed.ledger if item.action == "report.compose"]
         self.assertEqual(1, len(report_entries))
         self.assertEqual("CONFIRMED", report_entries[0].status)
+        self.assertEqual("CONFIRMED", report_entries[0].reconciliation_status)
+        self.assertIsNone(report_entries[0].last_error)
+
+    async def test_retryable_failure_records_attempt_and_then_recovers(self) -> None:
+        class RateLimitedOnceAdapter(FakeEnterpriseAdapter):
+            def __init__(self) -> None:
+                super().__init__()
+                self.rate_limited = False
+
+            async def execute(self, action, idempotency_key):
+                if action.capability == "report.compose" and not self.rate_limited:
+                    self.rate_limited = True
+                    raise ConnectorRateLimited("retry after one second")
+                return await super().execute(action, idempotency_key)
+
+        adapter = RateLimitedOnceAdapter()
+        repository = InMemoryTaskRepository()
+        service = WorkPilotService(repository, CapabilityRegistry([adapter]))
+        task = service.create_task("demo", "user", "prepare report")
+        with self.assertRaises(ConnectorRateLimited):
+            await service.run("demo", task.id)
+        recovery = service.recovery_cases("demo")
+        self.assertEqual(1, len(recovery))
+        self.assertEqual("RETRYABLE", recovery[0]["status"])
+        self.assertEqual(1, recovery[0]["attempt"])
+        resumed = await service.run("demo", task.id)
+        self.assertEqual(TaskStatus.WAITING_APPROVAL, resumed.status)
+        entry = next(item for item in resumed.ledger if item.action == "report.compose")
+        self.assertEqual(2, entry.attempt)
+        self.assertEqual("CONFIRMED", entry.status)
+
+    async def test_adapter_deduplicates_one_hundred_deliveries(self) -> None:
+        action = ActionRequest(
+            tenant_id="demo",
+            task_id="one",
+            step_id="send",
+            capability="mail.send",
+            parameters={"to": ["team@example.com"], "subject": "Update"},
+            channel=Channel.API,
+        )
+        results = [await self.adapter.execute(action, "same-key") for _ in range(100)]
+        self.assertEqual(1, self.adapter.execution_count["mail.send"])
+        self.assertEqual(1, len(self.adapter.state.sent_mail))
+        self.assertEqual(99, sum(result.duplicate for result in results))
 
     async def test_wrong_parameter_hash_cannot_approve(self) -> None:
         task = self.service.create_task("demo", "user-1", "send report")

@@ -57,11 +57,19 @@ docker compose -f deploy/docker-compose.yml up --build
 ```
 
 该 Compose 会同时启动 PostgreSQL、Temporal、API 和独立 Worker。Temporal 的设计取舍与当前验证边界见 [ADR-002](docs/adr/002-temporal-workflow.md)。
+真实 Temporal 测试服务的 Worker 重启、Update 继续、幂等投递与 History replay
+证据见 [故障注入报告](docs/reports/temporal-fault-injection.md)。
 
 运行测试：
 
 ```bash
 uv run pytest
+```
+
+执行需要本地 Temporal 开发服务二进制的真实 Workflow/Worker 集成测试：
+
+```bash
+make test-temporal
 ```
 
 运行 60 条版本化任务集的离线确定性评测（默认每条重复 3 次）：

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from workpilot.models import (
@@ -30,6 +31,39 @@ class ToolAdapter(Protocol):
     async def lookup(self, action: ActionRequest, idempotency_key: str) -> ActionResult | None: ...
 
     async def verify(self, action: ActionRequest, result: ActionResult) -> VerificationResult: ...
+
+
+class ConnectorError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool,
+        outcome_unknown: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.outcome_unknown = outcome_unknown
+
+
+class ConnectorDeadlineExceeded(ConnectorError):
+    def __init__(self, message: str = "connector deadline exceeded") -> None:
+        super().__init__(message, retryable=True, outcome_unknown=True)
+
+
+class ConnectorRateLimited(ConnectorError):
+    def __init__(self, message: str = "connector rate limited") -> None:
+        super().__init__(message, retryable=True)
+
+
+class ConnectorRejected(ConnectorError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, retryable=False)
+
+
+def ensure_before_deadline(deadline_at: datetime | None, now: datetime) -> None:
+    if deadline_at is not None and now >= deadline_at:
+        raise ConnectorDeadlineExceeded()
 
 
 class CapabilityRegistry:
