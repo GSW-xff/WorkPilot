@@ -1,10 +1,31 @@
 from __future__ import annotations
 
-from workpilot.models import Channel, PlanStep, RiskLevel, TaskPlan, VerificationRule
+from typing import Any
+
+from pydantic import ValidationError
+
+from workpilot.context import ContextBuilder, ContextItem, select_candidate_tools
+from workpilot.dag import validate_plan
+from workpilot.model_gateway import (
+    Message,
+    ModelCallRecord,
+    ModelGateway,
+    ModelGatewayError,
+    ModelPolicy,
+    RunBudget,
+)
+from workpilot.models import (
+    Channel,
+    PlanningMetadata,
+    PlanStep,
+    RiskLevel,
+    TaskPlan,
+    VerificationRule,
+)
 
 
 class DemoPlanner:
-    """A deterministic first planner; replaceable by a structured-output model gateway."""
+    """Deterministic safe fallback and baseline planner."""
 
     def plan(self, goal: str, recipient: str = "team@example.com") -> TaskPlan:
         return TaskPlan(
@@ -71,10 +92,160 @@ class DemoPlanner:
                     },
                     expected_effects=["外部收件人收到邮件"],
                     verification=[
-                        VerificationRule(
-                            type="remote_query", rule="message exists in sent"
-                        )
+                        VerificationRule(type="remote_query", rule="message exists in sent")
                     ],
                 ),
             ],
         )
+
+
+class PlanningOutcome:
+    def __init__(
+        self,
+        *,
+        plan: TaskPlan,
+        context_snapshot: dict[str, Any],
+        model_calls: list[ModelCallRecord],
+        validation_errors: list[str],
+        used_fallback: bool,
+    ) -> None:
+        self.plan = plan
+        self.context_snapshot = context_snapshot
+        self.model_calls = model_calls
+        self.validation_errors = validation_errors
+        self.used_fallback = used_fallback
+
+
+class StructuredPlanner:
+    """Produces a model candidate, repairs once, then enforces deterministic boundaries."""
+
+    def __init__(
+        self,
+        gateway: ModelGateway,
+        *,
+        available_tools: list[dict[str, Any]],
+        fixed_risks: dict[str, RiskLevel],
+        model_policy: ModelPolicy,
+        budget: RunBudget | None = None,
+        context_builder: ContextBuilder | None = None,
+        fallback: DemoPlanner | None = None,
+        max_steps: int = 20,
+    ) -> None:
+        self.gateway = gateway
+        self.available_tools = available_tools
+        self.fixed_risks = fixed_risks
+        self.model_policy = model_policy
+        self.budget = budget or RunBudget()
+        self.context_builder = context_builder or ContextBuilder(
+            max_tokens=self.budget.max_input_tokens
+        )
+        self.fallback = fallback or DemoPlanner()
+        self.max_steps = max_steps
+
+    async def plan(
+        self,
+        goal: str,
+        recipient: str,
+        *,
+        metadata: dict[str, str],
+        retrieved_context: list[ContextItem] | None = None,
+    ) -> PlanningOutcome:
+        tools = select_candidate_tools(goal, self.available_tools)
+        snapshot = self.context_builder.build(
+            goal=goal,
+            recipient=recipient,
+            tools=tools,
+            retrieved=retrieved_context,
+        )
+        messages = list(snapshot.messages)
+        calls: list[ModelCallRecord] = []
+        errors: list[str] = []
+        try:
+            for attempt in range(2):
+                response = await self.gateway.generate_structured(
+                    messages=messages,
+                    output_schema=TaskPlan,
+                    model_policy=self.model_policy,
+                    budget=self.budget,
+                    metadata=metadata,
+                )
+                calls.append(response.record)
+                try:
+                    plan = TaskPlan.model_validate(response.output)
+                    validate_plan(plan, set(self.fixed_risks), self.fixed_risks, self.max_steps)
+                    plan.planning = PlanningMetadata(
+                        prompt_version=self.model_policy.prompt_version,
+                        schema_version=self.model_policy.schema_version,
+                        validation_errors=errors,
+                        model_calls=calls,
+                    )
+                    return PlanningOutcome(
+                        plan=plan,
+                        context_snapshot=snapshot.model_dump(mode="json"),
+                        model_calls=calls,
+                        validation_errors=errors,
+                        used_fallback=False,
+                    )
+                except (ValidationError, ValueError) as exc:
+                    errors.append(str(exc))
+                    if attempt == 0:
+                        messages.append(
+                            Message(
+                                role="user",
+                                source="workpilot://planner/repair",
+                                trust="system",
+                                content=(
+                                    "The candidate was rejected. Return a complete corrected "
+                                    "TaskPlan. "
+                                    f"Validation errors: {str(exc)[:2_000]}"
+                                ),
+                            )
+                        )
+                        continue
+        except ModelGatewayError as exc:
+            errors.append(f"{exc.error_type}: {exc}")
+
+        fallback = self.fallback.plan(goal, recipient)
+        validate_plan(fallback, set(self.fixed_risks), self.fixed_risks, self.max_steps)
+        fallback.planning = PlanningMetadata(
+            prompt_version=self.model_policy.prompt_version,
+            schema_version=self.model_policy.schema_version,
+            used_fallback=True,
+            validation_errors=errors,
+            model_calls=calls,
+        )
+        return PlanningOutcome(
+            plan=fallback,
+            context_snapshot=snapshot.model_dump(mode="json"),
+            model_calls=calls,
+            validation_errors=errors,
+            used_fallback=True,
+        )
+
+
+def diff_plans(
+    previous: TaskPlan, candidate: TaskPlan, completed_steps: set[str]
+) -> dict[str, Any]:
+    previous_by_id = {step.id: step for step in previous.steps}
+    candidate_by_id = {step.id: step for step in candidate.steps}
+    changed = sorted(
+        step_id
+        for step_id in previous_by_id.keys() & candidate_by_id.keys()
+        if previous_by_id[step_id] != candidate_by_id[step_id]
+    )
+    removed = sorted(previous_by_id.keys() - candidate_by_id.keys())
+    protected = sorted(completed_steps & (set(changed) | set(removed)))
+    if protected:
+        raise ValueError("replan cannot remove or modify completed steps: " + ", ".join(protected))
+    return {
+        "from_version": previous.version,
+        "to_version": candidate.version,
+        "added": sorted(candidate_by_id.keys() - previous_by_id.keys()),
+        "removed": removed,
+        "changed": changed,
+        "unchanged": sorted(
+            step_id
+            for step_id in previous_by_id.keys() & candidate_by_id.keys()
+            if step_id not in changed
+        ),
+    }

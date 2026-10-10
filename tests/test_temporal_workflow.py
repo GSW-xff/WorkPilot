@@ -18,9 +18,7 @@ class TemporalActivitiesTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         adapter = FakeEnterpriseAdapter()
         self.repository = InMemoryTaskRepository()
-        self.service = WorkPilotService(
-            self.repository, CapabilityRegistry([adapter])
-        )
+        self.service = WorkPilotService(self.repository, CapabilityRegistry([adapter]))
         self.activities = TaskActivities(self.service)
 
     async def test_activities_drive_task_through_both_approvals(self) -> None:
@@ -158,9 +156,7 @@ class TemporalClientTest(unittest.IsolatedAsyncioTestCase):
 
         await temporal.start("other-tenant", "task-123")
         second_call = raw_client.start_workflow.await_args
-        self.assertEqual(
-            "workpilot-task-other-tenant-task-123", second_call.kwargs["id"]
-        )
+        self.assertEqual("workpilot-task-other-tenant-task-123", second_call.kwargs["id"])
 
     async def test_client_sends_approval_update_and_control_signals(self) -> None:
         handle = Mock()

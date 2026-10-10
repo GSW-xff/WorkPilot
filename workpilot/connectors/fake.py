@@ -75,15 +75,11 @@ class FakeEnterpriseAdapter:
         self.state.executions[idempotency_key] = result
         return result
 
-    async def lookup(
-        self, action: ActionRequest, idempotency_key: str
-    ) -> ActionResult | None:
+    async def lookup(self, action: ActionRequest, idempotency_key: str) -> ActionResult | None:
         del action
         return self.state.executions.get(idempotency_key)
 
-    async def verify(
-        self, action: ActionRequest, result: ActionResult
-    ) -> VerificationResult:
+    async def verify(self, action: ActionRequest, result: ActionResult) -> VerificationResult:
         if not result.success:
             return VerificationResult(
                 status=VerificationStatus.FAILED,
@@ -162,9 +158,7 @@ class FakeEnterpriseAdapter:
                 "sources": ["fake://project/updates", "fake://knowledge/weekly-template"],
             }
             self.state.reports[remote_id] = report
-            return ActionResult(
-                success=True, remote_id=remote_id, data=report, side_effect=True
-            )
+            return ActionResult(success=True, remote_id=remote_id, data=report, side_effect=True)
         if action.capability == "task.create":
             remote_id = f"task-{len(self.state.tasks) + 1}"
             self.state.tasks[remote_id] = {"tenant_id": action.tenant_id, **params}

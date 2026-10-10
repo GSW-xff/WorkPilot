@@ -41,4 +41,3 @@ TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
 def ensure_transition(current: TaskStatus, target: TaskStatus) -> None:
     if target not in TRANSITIONS[current]:
         raise ValueError(f"illegal task transition: {current.value} -> {target.value}")
-

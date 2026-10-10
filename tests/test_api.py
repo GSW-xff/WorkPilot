@@ -39,9 +39,7 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(201, created.status_code)
         task_id = created.json()["id"]
 
-        waiting = await self.client.post(
-            f"/v1/tasks/{task_id}/run", headers=self.headers
-        )
+        waiting = await self.client.post(f"/v1/tasks/{task_id}/run", headers=self.headers)
         self.assertEqual(200, waiting.status_code)
         payload = waiting.json()
         self.assertEqual("WAITING_APPROVAL", payload["status"])
@@ -55,27 +53,51 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(200, approved.status_code)
         self.assertEqual("RUNNING", approved.json()["status"])
 
-        replay = await self.client.get(
-            f"/v1/tasks/{task_id}/replay", headers=self.headers
-        )
+        replay = await self.client.get(f"/v1/tasks/{task_id}/replay", headers=self.headers)
         self.assertEqual(200, replay.status_code)
         self.assertTrue(
-            any(
-                event["type"] == "approval.approved"
-                for event in replay.json()["events"]
-            )
+            any(event["type"] == "approval.approved" for event in replay.json()["events"])
         )
 
     async def test_cross_tenant_task_access_returns_not_found(self) -> None:
         created = (
             await self.client.post(
-            "/v1/tasks", headers=self.headers, json={"goal": "prepare weekly report"}
+                "/v1/tasks", headers=self.headers, json={"goal": "prepare weekly report"}
             )
         ).json()
         response = await self.client.get(
             f"/v1/tasks/{created['id']}", headers={"X-Tenant-ID": "other"}
         )
         self.assertEqual(404, response.status_code)
+
+    async def test_replan_returns_diff_and_increments_version(self) -> None:
+        created = (
+            await self.client.post(
+                "/v1/tasks", headers=self.headers, json={"goal": "prepare weekly report"}
+            )
+        ).json()
+        candidate = created["plan"]
+        candidate["steps"].append(
+            {
+                "id": "search_more",
+                "description": "search another source",
+                "depends_on": [],
+                "capability": "knowledge.search",
+                "preferred_channel": "api",
+                "risk": "R0",
+                "requires_approval": False,
+                "parameters": {"query": "risk"},
+                "expected_effects": [],
+                "verification": [{"type": "schema", "rule": "documents.length > 0"}],
+            }
+        )
+        response = await self.client.post(
+            f"/v1/tasks/{created['id']}/replan", headers=self.headers, json=candidate
+        )
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual(2, payload["task"]["plan"]["version"])
+        self.assertEqual(["search_more"], payload["diff"]["added"])
 
     async def test_knowledge_documents_are_tenant_scoped(self) -> None:
         response = await self.client.post(
@@ -103,9 +125,7 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
         temporal.signal = AsyncMock()
         self.app.state.temporal = temporal
 
-        response = await self.client.post(
-            f"/v1/tasks/{task_id}/run", headers=self.headers
-        )
+        response = await self.client.post(f"/v1/tasks/{task_id}/run", headers=self.headers)
         self.assertEqual(200, response.status_code)
         temporal.start.assert_awaited_once_with("demo", task_id)
 
@@ -131,9 +151,7 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(task_id, command.task_id)
 
         for action in ("pause", "resume", "cancel"):
-            response = await self.client.post(
-                f"/v1/tasks/{task_id}/{action}", headers=self.headers
-            )
+            response = await self.client.post(f"/v1/tasks/{task_id}/{action}", headers=self.headers)
             self.assertEqual(200, response.status_code)
         self.assertEqual(3, temporal.signal.await_count)
 

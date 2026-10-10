@@ -39,4 +39,3 @@ class PolicyEngine:
             channel=routed_channel,
             reason="allowed by deterministic MVP policy",
         )
-

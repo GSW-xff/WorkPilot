@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from workpilot.model_gateway import ModelCallRecord
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
@@ -77,12 +79,22 @@ class PlanStep(BaseModel):
     verification: list[VerificationRule] = Field(default_factory=list)
 
 
+class PlanningMetadata(BaseModel):
+    prompt_version: str
+    schema_version: str
+    context_snapshot_id: str | None = None
+    used_fallback: bool = False
+    validation_errors: list[str] = Field(default_factory=list)
+    model_calls: list[ModelCallRecord] = Field(default_factory=list)
+
+
 class TaskPlan(BaseModel):
     goal: str
     constraints: list[str] = Field(default_factory=list)
     success_criteria: list[dict[str, str]] = Field(default_factory=list)
     steps: list[PlanStep]
     version: int = 1
+    planning: PlanningMetadata | None = None
 
 
 class StepRun(BaseModel):
@@ -204,4 +216,3 @@ class ActionResult(BaseModel):
     error: str | None = None
     side_effect: bool = False
     duplicate: bool = False
-

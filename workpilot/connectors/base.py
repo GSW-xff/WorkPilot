@@ -27,13 +27,9 @@ class ToolAdapter(Protocol):
 
     async def execute(self, action: ActionRequest, idempotency_key: str) -> ActionResult: ...
 
-    async def lookup(
-        self, action: ActionRequest, idempotency_key: str
-    ) -> ActionResult | None: ...
+    async def lookup(self, action: ActionRequest, idempotency_key: str) -> ActionResult | None: ...
 
-    async def verify(
-        self, action: ActionRequest, result: ActionResult
-    ) -> VerificationResult: ...
+    async def verify(self, action: ActionRequest, result: ActionResult) -> VerificationResult: ...
 
 
 class CapabilityRegistry:
@@ -54,6 +50,17 @@ class CapabilityRegistry:
     @property
     def risks(self) -> dict[str, RiskLevel]:
         return {name: item.risk for name, item in self._metadata.items()}
+
+    def planning_tools(self) -> list[dict[str, object]]:
+        return [
+            {
+                "name": name,
+                "risk": metadata.risk.value,
+                "channels": sorted(channel.value for channel in metadata.channels),
+                "parameters": {},
+            }
+            for name, metadata in sorted(self._metadata.items())
+        ]
 
     def adapter_for(self, capability: str) -> ToolAdapter:
         try:
