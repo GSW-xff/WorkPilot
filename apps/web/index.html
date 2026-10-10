@@ -86,6 +86,7 @@
     <script>
       const headers = {"Content-Type": "application/json", "X-Tenant-ID": "demo", "X-User-ID": "console-user"};
       let task = null;
+      let refreshing = false;
       const $ = id => document.getElementById(id);
       async function request(path, options = {}) {
         const response = await fetch(path, {headers, ...options});
@@ -117,6 +118,18 @@
           render();
         } catch (error) { $('notice').textContent = error.message; }
       }
+      async function refreshTask() {
+        if (!task || refreshing) return;
+        refreshing = true;
+        try {
+          task = await request(`/v1/tasks/${task.id}`);
+          render();
+        } catch (error) {
+          $('notice').textContent = error.message;
+        } finally {
+          refreshing = false;
+        }
+      }
       $('create').onclick = async () => {
         try {
           $('notice').textContent = '';
@@ -130,6 +143,9 @@
       $('cancel').onclick = () => act('cancel');
       window.approve = async (stepId, hash) => { await act('approve', {step_id:stepId, parameter_hash:hash}); if (task.status === 'RUNNING') await act('run'); };
       window.rejectApproval = stepId => act('reject', {step_id:stepId, reason:'用户在工作台拒绝该外部写入'});
+      window.setInterval(() => {
+        if (task && !['SUCCEEDED','FAILED','CANCELLED'].includes(task.status)) refreshTask();
+      }, 1000);
     </script>
   </body>
 </html>

@@ -18,8 +18,10 @@
 - PostgreSQL RLS、应用/迁移角色分离和事务内 tenant context；
 - 乐观锁、跨 Repository 重建恢复、租户隔离和 Outbox 自动化测试；
 - Docker Compose、Ruff、mypy、coverage 和 GitHub Actions 门禁。
+- Temporal Workflow/Activity、审批 Update、Pause/Resume/Cancel Signal 和独立 Worker；
+- Action Ledger 预占、`UNKNOWN` 状态和 lookup-before-retry。
 
-Temporal、ModelGateway、真实连接器、文件知识管线、Browser Adapter、完整遥测和 Next.js 仍未实现，不能作为当前能力对外描述。
+Temporal 基础控制流已经实现，但真实 Worker kill/restart 的容器级验收尚未完成。ModelGateway、真实连接器、文件知识管线、Browser Adapter、完整遥测和 Next.js 仍未实现，不能作为当前能力对外描述。
 
 ## 1. 结论先行
 
@@ -65,7 +67,7 @@ V2 建议集中完成六件事：
 | 租户边界 | tenant-aware Repository 和知识文档过滤 | 不同租户不能直接读取同一任务 |
 | 持久化 | SQLAlchemy、Alembic、乐观锁、RLS 和 Outbox | 服务重启后任务事实不会丢失 |
 | 工作台 | 三栏静态 Web Console | 可创建、执行、审批和查看证据 |
-| 工程质量 | 32 项自动化测试、88% 覆盖率、Ruff、mypy、CI | 基础行为可重复验证 |
+| 工程质量 | 42 项自动化测试、88% 覆盖率、Ruff、mypy、CI | 基础行为可重复验证 |
 
 ### 2.2 当前默认流程
 
@@ -113,16 +115,16 @@ V2 建议集中完成六件事：
 
 | 追问 | 当前不足 | V2 应给出的证据 |
 | --- | --- | --- |
-| 服务挂了以后任务怎么办？ | 业务事实可恢复，控制流不能自动续跑 | Worker kill/restart 集成测试，任务从最近安全点恢复 |
-| API 超时但邮件可能发出怎么办？ | 只有 Fake 幂等 | 远端查询优先、Outbox/Inbox、故障注入测试 |
+| 服务挂了以后任务怎么办？ | Temporal 控制流已接入，尚无容器级恢复实测 | Worker kill/restart 集成测试，任务从最近安全点恢复 |
+| API 超时但邮件可能发出怎么办？ | 已有 UNKNOWN 与远端查询恢复，但只在 Fake 验证 | 真实连接器查询、Outbox/Inbox、故障注入测试 |
 | 多租户如何保证不串数据？ | Repository 与 RLS 已完成，附件 ACL 未完成 | PostgreSQL 集成环境的 RLS 与附件 ACL 对抗测试 |
 | LLM 输出非法计划怎么办？ | 尚未接模型 | JSON Schema、重试、规则校验、fallback、非法样本集 |
-| 为什么需要 Temporal？ | 只有文档取舍 | 与数据库轮询方案的 ADR、故障恢复实测 |
+| 为什么需要 Temporal？ | 已有 Workflow/Activity 与 ADR，缺恢复数据 | Worker 故障恢复实测与历史回放证据 |
 | 怎么知道 Agent 真的变好了？ | 只有目标，没有结果 | 固定任务集、基线、均值/标准差、失败分类 |
 | 如何控制成本和延迟？ | 无真实 Token 数据 | Token、成本、P50/P95、每成功任务成本 |
 | 如何排查一次失败？ | Timeline 有限 | trace_id 串联模型、工具、数据库、验证与截图 |
 | 用户为什么愿意使用？ | 只有技术流程 | 用户研究、可解释预览、可撤销/补偿、模板与反馈闭环 |
-| 如何上线？ | API/PostgreSQL Compose 与 CI 已完成，完整依赖未编排 | Temporal、对象存储、观测栈和备份恢复演练 |
+| 如何上线？ | API/Worker/PostgreSQL/Temporal Compose 与 CI 已完成 | 对象存储、观测栈和备份恢复演练 |
 
 ### 3.3 与当前岗位要求的对应关系
 
@@ -151,15 +153,15 @@ V2 建议集中完成六件事：
 | --- | ---: | --- | --- |
 | 产品问题与边界 | 4.0 | 用户、风险和主流程明确 | 没有真实用户反馈 |
 | Agent 核心设计 | 3.0 | Planner/Executor/Verifier、DAG、策略 | Planner 仍是确定性模板 |
-| 后端工程 | 4.0 | FastAPI、SQLAlchemy、Alembic、乐观锁、Outbox | Repository 仍同步，API 未异步排队 |
-| 分布式与可靠性 | 2.5 | 幂等键、Ledger、Checkpoint、持久事实 | 无 Temporal、故障恢复和 UNKNOWN 动作闭环 |
+| 后端工程 | 4.0 | FastAPI、SQLAlchemy、Alembic、乐观锁、Outbox、Temporal 队列 | Repository 仍同步，缺背压和限流 |
+| 分布式与可靠性 | 3.5 | Temporal 基础控制流、幂等键、Ledger、Checkpoint、UNKNOWN 查询恢复 | 缺 Worker kill/restart 容器级验收 |
 | 安全 | 4.0 | 审批哈希、R3 禁止、RLS、脱敏 | 无 OIDC、Secret Store、真实 Prompt Injection 红队 |
 | 数据与 RAG | 1.5 | tenant-aware Fake 知识数据 | 无文件解析、向量/全文检索和引用评测 |
 | 真实系统集成 | 1.0 | 统一 Adapter 与 Fake 合同基础 | 无真实 OAuth/API/MCP 连接器 |
 | Browser Agent | 0.5 | 只有架构设计 | 无 Playwright 观察、动作和证据 |
 | 可观测性与评测 | 1.5 | Timeline、Artifact、测试覆盖率 | 无 OTel、Token/成本和固定任务集报告 |
 | 前端与用户体验 | 2.0 | 可操作的三栏工作台 | 无登录、附件、任务列表、恢复中心和可用性验证 |
-| 交付与表达 | 3.5 | README、架构/V2/持久化文档、CI | 无 ADR、Demo 视频、实测指标和事故复盘 |
+| 交付与表达 | 4.0 | README、架构/V2/持久化文档、ADR、CI | 无 Demo 视频、实测指标和事故复盘 |
 
 当前版本已经足以展示“安全工作流后端设计”，但还不足以在 Agent 岗位中证明“模型泛化、真实工具使用、持久 Agent 控制流和量化评测”。面试优势来自少数可被现场验证的深度能力，而不是更多未完成的模块名。
 
@@ -804,16 +806,16 @@ V2 面试演示不必上 Kubernetes，但需要提供 Kubernetes manifests 或 H
 
 ## 19. 建议的下一步
 
-“PostgreSQL 持久化 + CI”已经完成。下一项实现应是 Temporal 持久工作流，让已经可恢复的业务事实拥有同样可恢复的控制流，而不是先接模型。
+“PostgreSQL 持久化 + CI”和 Temporal 基础工作流已经完成。下一项实现应先补齐 Temporal 容器级崩溃恢复验收，然后实现 ModelGateway 与结构化 Planner。
 
 建议下一次开发任务拆分为：
 
-1. 将当前运行循环拆为确定性 Workflow 和有 I/O 的 Activity；
-2. Approval 使用可校验的 Workflow Update；
-3. Pause/Cancel 使用 Signal，任务状态使用 Query；
-4. 配置 Activity timeout、retry、heartbeat 和非重试错误；
-5. 增加 Worker kill、审批等待期间重启和超时但远端已成功的测试；
-6. 记录 Temporal 与数据库队列取舍的 ADR。
+1. 增加 Worker kill、审批等待期间重启的 Docker E2E；
+2. 为长 Activity 增加 heartbeat，并验证取消传播；
+3. 增加 Workflow 版本升级与历史回放测试；
+4. 实现 `ModelGateway.generate_structured()`、Token 预算和调用记录；
+5. 将模板 Planner 升级为结构化模型 Planner，并保留模板 fallback；
+6. 建立非法输出与 Prompt Injection 的 Planner 固定样本集。
 
 ## 20. 参考资料
 

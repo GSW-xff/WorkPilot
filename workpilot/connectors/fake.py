@@ -75,6 +75,12 @@ class FakeEnterpriseAdapter:
         self.state.executions[idempotency_key] = result
         return result
 
+    async def lookup(
+        self, action: ActionRequest, idempotency_key: str
+    ) -> ActionResult | None:
+        del action
+        return self.state.executions.get(idempotency_key)
+
     async def verify(
         self, action: ActionRequest, result: ActionResult
     ) -> VerificationResult:

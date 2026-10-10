@@ -18,6 +18,8 @@ class Settings:
     auto_create_schema: bool = False
     max_steps: int = 20
     allowed_recipient_domains: frozenset[str] = frozenset({"example.com"})
+    temporal_target: str | None = None
+    temporal_task_queue: str = "workpilot-tasks"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -36,5 +38,8 @@ class Settings:
             ),
             max_steps=int(os.getenv("WORKPILOT_MAX_STEPS", "20")),
             allowed_recipient_domains=domains or frozenset({"example.com"}),
+            temporal_target=os.getenv("WORKPILOT_TEMPORAL_TARGET") or None,
+            temporal_task_queue=os.getenv(
+                "WORKPILOT_TEMPORAL_TASK_QUEUE", "workpilot-tasks"
+            ),
         )
-

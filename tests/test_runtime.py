@@ -65,6 +65,42 @@ class RuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, self.adapter.execution_count["mail.send"])
         self.assertEqual(1, len(self.adapter.state.sent_mail))
 
+    async def test_unknown_result_is_looked_up_before_retry(self) -> None:
+        class TimeoutAfterCommitAdapter(FakeEnterpriseAdapter):
+            def __init__(self) -> None:
+                super().__init__()
+                self.timeout_once = True
+
+            async def execute(self, action, idempotency_key):
+                result = await super().execute(action, idempotency_key)
+                if action.capability == "report.compose" and self.timeout_once:
+                    self.timeout_once = False
+                    raise TimeoutError("response lost after remote commit")
+                return result
+
+        adapter = TimeoutAfterCommitAdapter()
+        repository = InMemoryTaskRepository()
+        service = WorkPilotService(repository, CapabilityRegistry([adapter]))
+        task = service.create_task("demo", "user-1", "send report")
+
+        with self.assertRaises(TimeoutError):
+            await service.run("demo", task.id)
+
+        interrupted = repository.get("demo", task.id)
+        report_entry = next(
+            item for item in interrupted.ledger if item.action == "report.compose"
+        )
+        self.assertEqual("UNKNOWN", report_entry.status)
+
+        resumed = await service.run("demo", task.id)
+        self.assertEqual(TaskStatus.WAITING_APPROVAL, resumed.status)
+        self.assertEqual(1, adapter.execution_count["report.compose"])
+        report_entries = [
+            item for item in resumed.ledger if item.action == "report.compose"
+        ]
+        self.assertEqual(1, len(report_entries))
+        self.assertEqual("CONFIRMED", report_entries[0].status)
+
     async def test_wrong_parameter_hash_cannot_approve(self) -> None:
         task = self.service.create_task("demo", "user-1", "send report")
         task = await self.service.run("demo", task.id)

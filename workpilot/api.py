@@ -16,6 +16,8 @@ from workpilot.connectors.fake import FakeEnterpriseAdapter
 from workpilot.db.repository import SQLAlchemyTaskRepository, create_database_engine
 from workpilot.repository import InMemoryTaskRepository, TaskNotFoundError, TaskRepository
 from workpilot.runtime import WorkPilotService
+from workpilot.workflows.client import TemporalTaskClient
+from workpilot.workflows.temporal import ApprovalCommand
 
 
 class CreateTaskRequest(BaseModel):
@@ -76,6 +78,10 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        if settings.temporal_target:
+            _app.state.temporal = await TemporalTaskClient.connect(
+                settings.temporal_target, settings.temporal_task_queue
+            )
         yield
         service.repository.close()
 
@@ -94,6 +100,7 @@ def create_app(
     )
     app.state.service = service
     app.state.fake_adapter = adapter
+    app.state.temporal = None
 
     @app.exception_handler(TaskNotFoundError)
     async def task_not_found(_request, _exc):
@@ -143,6 +150,10 @@ def create_app(
         context: Annotated[tuple[str, str], Depends(tenant_context)],
     ):
         tenant_id, _ = context
+        if app.state.temporal is not None:
+            task = service.repository.get(tenant_id, task_id)
+            await app.state.temporal.start(tenant_id, task_id)
+            return task
         return await _translate_value_error(service.run(tenant_id, task_id))
 
     @app.post("/v1/tasks/{task_id}/approve")
@@ -152,6 +163,18 @@ def create_app(
         context: Annotated[tuple[str, str], Depends(tenant_context)],
     ):
         tenant_id, user_id = context
+        if app.state.temporal is not None:
+            service.repository.get(tenant_id, task_id)
+            await app.state.temporal.approve(
+                ApprovalCommand(
+                    tenant_id=tenant_id,
+                    task_id=task_id,
+                    step_id=body.step_id,
+                    parameter_hash=body.parameter_hash,
+                    approver=user_id,
+                )
+            )
+            return service.repository.get(tenant_id, task_id)
         try:
             return service.approve(
                 tenant_id, task_id, body.step_id, body.parameter_hash, user_id
@@ -166,6 +189,30 @@ def create_app(
         context: Annotated[tuple[str, str], Depends(tenant_context)],
     ):
         tenant_id, user_id = context
+        if app.state.temporal is not None:
+            task = service.repository.get(tenant_id, task_id)
+            approval = next(
+                (
+                    item
+                    for item in reversed(task.approvals)
+                    if item.step_id == body.step_id and item.status.value == "PENDING"
+                ),
+                None,
+            )
+            if approval is None:
+                raise HTTPException(status_code=409, detail="no pending approval")
+            await app.state.temporal.approve(
+                ApprovalCommand(
+                    tenant_id=tenant_id,
+                    task_id=task_id,
+                    step_id=body.step_id,
+                    parameter_hash=approval.parameter_hash,
+                    approver=user_id,
+                    approved=False,
+                    reason=body.reason,
+                )
+            )
+            return service.repository.get(tenant_id, task_id)
         try:
             return service.reject(tenant_id, task_id, body.step_id, user_id, body.reason)
         except ValueError as exc:
@@ -177,6 +224,10 @@ def create_app(
         context: Annotated[tuple[str, str], Depends(tenant_context)],
     ):
         tenant_id, _ = context
+        if app.state.temporal is not None:
+            task = service.repository.get(tenant_id, task_id)
+            await app.state.temporal.signal(tenant_id, task_id, "pause")
+            return task
         return _call_or_conflict(service.pause, tenant_id, task_id)
 
     @app.post("/v1/tasks/{task_id}/resume")
@@ -185,6 +236,10 @@ def create_app(
         context: Annotated[tuple[str, str], Depends(tenant_context)],
     ):
         tenant_id, _ = context
+        if app.state.temporal is not None:
+            task = service.repository.get(tenant_id, task_id)
+            await app.state.temporal.signal(tenant_id, task_id, "resume")
+            return task
         return _call_or_conflict(service.resume, tenant_id, task_id)
 
     @app.post("/v1/tasks/{task_id}/cancel")
@@ -193,6 +248,10 @@ def create_app(
         context: Annotated[tuple[str, str], Depends(tenant_context)],
     ):
         tenant_id, _ = context
+        if app.state.temporal is not None:
+            task = service.repository.get(tenant_id, task_id)
+            await app.state.temporal.signal(tenant_id, task_id, "cancel")
+            return task
         return _call_or_conflict(service.cancel, tenant_id, task_id)
 
     @app.get("/v1/tasks/{task_id}/artifacts")

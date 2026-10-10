@@ -5,6 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PLAN = ROOT / "docs" / "mvp-implementation-plan.md"
 V2_PLAN = ROOT / "docs" / "v2-design-plan.md"
 PERSISTENCE = ROOT / "docs" / "persistence.md"
+TEMPORAL_ADR = ROOT / "docs" / "adr" / "002-temporal-workflow.md"
 
 
 class MvpPlanDocumentationTest(unittest.TestCase):
@@ -80,13 +81,14 @@ class V2PlanDocumentationTest(unittest.TestCase):
 
     def test_v2_plan_reports_implementation_status_honestly(self) -> None:
         self.assertIn("V2 第一阶段已经实现", self.content)
-        self.assertIn("Temporal、ModelGateway、真实连接器", self.content)
+        self.assertIn("Temporal 基础控制流已经实现", self.content)
+        self.assertIn("ModelGateway、真实连接器", self.content)
         self.assertIn("不能作为当前能力对外描述", self.content)
 
     def test_v2_plan_has_current_interview_scorecard_and_priorities(self) -> None:
         self.assertIn("### 3.4 当前面试竞争力评分", self.content)
         self.assertIn("### 3.5 最能拉开差距的五项成果", self.content)
-        self.assertIn("32 项自动化测试、88% 覆盖率", self.content)
+        self.assertIn("42 项自动化测试、88% 覆盖率", self.content)
         self.assertIn("Temporal Worker 崩溃恢复", self.content)
 
     def test_v2_plan_preserves_core_safety_invariants(self) -> None:
@@ -114,6 +116,24 @@ class PersistenceDocumentationTest(unittest.TestCase):
             "## 本地运行",
             "## 恢复测试",
             "Temporal 控制流恢复仍属于 V2 下一阶段",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+
+class TemporalArchitectureDecisionTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.content = TEMPORAL_ADR.read_text(encoding="utf-8")
+
+    def test_adr_defines_durable_control_and_side_effect_boundaries(self) -> None:
+        required = [
+            "审批使用同步且可返回错误的 Workflow Update",
+            "Pause、Resume、Cancel 使用 Signal",
+            "Temporal Activity 是 at-least-once 语义",
+            "下一次执行先调用 Adapter `lookup`",
+            "不能宣称已经通过最终恢复验收",
         ]
         for item in required:
             with self.subTest(item=item):

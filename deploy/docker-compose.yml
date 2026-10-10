@@ -25,6 +25,8 @@ services:
       WORKPILOT_DATABASE_URL: postgresql+psycopg://workpilot_app:workpilot_app@postgres:5432/workpilot
       WORKPILOT_MIGRATION_DATABASE_URL: postgresql+psycopg://workpilot_owner:workpilot_owner@postgres:5432/workpilot
       WORKPILOT_ALLOWED_RECIPIENT_DOMAINS: example.com
+      WORKPILOT_TEMPORAL_TARGET: temporal:7233
+      WORKPILOT_TEMPORAL_TASK_QUEUE: workpilot-tasks
     command:
       - /bin/sh
       - -c
@@ -36,7 +38,45 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      temporal:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      WORKPILOT_DATABASE_URL: postgresql+psycopg://workpilot_app:workpilot_app@postgres:5432/workpilot
+      WORKPILOT_TEMPORAL_TARGET: temporal:7233
+      WORKPILOT_TEMPORAL_TASK_QUEUE: workpilot-tasks
+      WORKPILOT_ALLOWED_RECIPIENT_DOMAINS: example.com
+    command: ["python", "-m", "workpilot.worker"]
+    depends_on:
+      api:
+        condition: service_started
+      temporal:
+        condition: service_healthy
+
+  temporal:
+    image: temporalio/auto-setup:1.28.1
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PWD: postgres
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+    ports:
+      - "7233:7233"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
 
 volumes:
   workpilot-postgres:
-

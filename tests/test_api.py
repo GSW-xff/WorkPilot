@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 
@@ -26,6 +27,8 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
         console = await self.client.get("/")
         self.assertEqual(200, console.status_code)
         self.assertIn("WorkPilot Console", console.text)
+        self.assertIn("refreshTask", console.text)
+        self.assertIn("setInterval", console.text)
 
     async def test_create_run_approve_and_replay(self) -> None:
         created = await self.client.post(
@@ -84,6 +87,55 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
         documents = self.app.state.fake_adapter.state.documents
         created = next(item for item in documents if item["id"] == response.json()["id"])
         self.assertEqual("tenant-a", created["tenant_id"])
+
+    async def test_temporal_dispatch_is_tenant_scoped(self) -> None:
+        created = (
+            await self.client.post(
+                "/v1/tasks",
+                headers=self.headers,
+                json={"goal": "prepare weekly report"},
+            )
+        ).json()
+        task_id = created["id"]
+        temporal = Mock()
+        temporal.start = AsyncMock()
+        temporal.approve = AsyncMock()
+        temporal.signal = AsyncMock()
+        self.app.state.temporal = temporal
+
+        response = await self.client.post(
+            f"/v1/tasks/{task_id}/run", headers=self.headers
+        )
+        self.assertEqual(200, response.status_code)
+        temporal.start.assert_awaited_once_with("demo", task_id)
+
+        not_found = await self.client.post(
+            f"/v1/tasks/{task_id}/run", headers={"X-Tenant-ID": "other"}
+        )
+        self.assertEqual(404, not_found.status_code)
+        temporal.start.assert_awaited_once()
+
+        waiting = await self.app.state.service.run("demo", task_id)
+        approval = waiting.approvals[-1]
+        approved = await self.client.post(
+            f"/v1/tasks/{task_id}/approve",
+            headers=self.headers,
+            json={
+                "step_id": approval.step_id,
+                "parameter_hash": approval.parameter_hash,
+            },
+        )
+        self.assertEqual(200, approved.status_code)
+        command = temporal.approve.await_args.args[0]
+        self.assertEqual("demo", command.tenant_id)
+        self.assertEqual(task_id, command.task_id)
+
+        for action in ("pause", "resume", "cancel"):
+            response = await self.client.post(
+                f"/v1/tasks/{task_id}/{action}", headers=self.headers
+            )
+            self.assertEqual(200, response.status_code)
+        self.assertEqual(3, temporal.signal.await_count)
 
 
 if __name__ == "__main__":

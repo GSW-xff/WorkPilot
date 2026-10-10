@@ -75,7 +75,6 @@ class WorkPilotService:
 
     async def run(self, tenant_id: str, task_id: str) -> TaskRun:
         task = self.repository.get(tenant_id, task_id)
-        starting_version = task.version
         if task.status is TaskStatus.PLAN_READY:
             self._transition(task, TaskStatus.RUNNING, "task.running", "任务开始执行")
         elif task.status is not TaskStatus.RUNNING:
@@ -100,7 +99,7 @@ class WorkPilotService:
                 step_run.error = decision.reason
                 self._transition(task, TaskStatus.FAILED, "policy.denied", decision.reason, step_id)
                 self._checkpoint(task)
-                return self.repository.save(task, expected_version=starting_version)
+                return self.repository.save(task, expected_version=task.version)
 
             action = ActionRequest(
                 tenant_id=tenant_id,
@@ -127,7 +126,7 @@ class WorkPilotService:
                     {"parameter_hash": params_hash, "parameters": redact(action.parameters)},
                 )
                 self._checkpoint(task)
-                return self.repository.save(task, expected_version=starting_version)
+                return self.repository.save(task, expected_version=task.version)
 
             step_run.status = StepStatus.RUNNING
             step_run.started_at = utc_now()
@@ -136,22 +135,49 @@ class WorkPilotService:
                 tenant_id, task.id, step.id, step.capability, action.parameters
             )
             existing = next((item for item in task.ledger if item.idempotency_key == key), None)
-            if existing is not None:
+            if existing is not None and existing.status in {"CONFIRMED", "EXECUTED"}:
                 result = self._result_from_ledger(existing)
             else:
-                result = await adapter.execute(action, key)
-                task.ledger.append(
-                    ActionLedgerEntry(
+                if existing is None:
+                    existing = ActionLedgerEntry(
                         idempotency_key=key,
                         step_id=step.id,
                         action=step.capability,
                         channel=channel,
                         parameter_hash=params_hash,
-                        remote_id=result.remote_id,
-                        status="EXECUTED" if result.success else "FAILED",
-                        result=redact(result.model_dump(mode="json")),
+                        status="RESERVED",
                     )
-                )
+                    task.ledger.append(existing)
+                    self._event(
+                        task,
+                        "action.reserved",
+                        "动作已使用幂等键预占",
+                        step.id,
+                        {"idempotency_key": key},
+                    )
+                    task = self.repository.save(task, expected_version=task.version)
+                    step_run = task.steps[step_id]
+                    existing = next(
+                        item for item in task.ledger if item.idempotency_key == key
+                    )
+
+                result = await adapter.lookup(action, key)
+                if result is None:
+                    try:
+                        result = await adapter.execute(action, key)
+                    except Exception:
+                        existing.status = "UNKNOWN"
+                        self._event(
+                            task,
+                            "action.unknown",
+                            "动作结果未知，重试前必须查询远端状态",
+                            step.id,
+                        )
+                        self.repository.save(task, expected_version=task.version)
+                        raise
+                existing.remote_id = result.remote_id
+                existing.status = "DISPATCHED" if result.success else "FAILED"
+                existing.result = redact(result.model_dump(mode="json"))
 
             artifact = Artifact(
                 id=f"artifact-{uuid4().hex[:12]}",
@@ -179,18 +205,20 @@ class WorkPilotService:
                     step.id,
                 )
                 self._checkpoint(task)
-                return self.repository.save(task, expected_version=starting_version)
+                return self.repository.save(task, expected_version=task.version)
 
             step_run.status = StepStatus.SUCCEEDED
             step_run.result = result.model_dump(mode="json")
             step_run.completed_at = utc_now()
+            existing.status = "CONFIRMED"
             self._event(task, "step.succeeded", "远端状态已独立验证", step.id)
             self._checkpoint(task)
+            task = self.repository.save(task, expected_version=task.version)
 
         if all(item.status is StepStatus.SUCCEEDED for item in task.steps.values()):
             self._transition(task, TaskStatus.SUCCEEDED, "task.succeeded", "所有目标均已验证通过")
             self._checkpoint(task)
-        return self.repository.save(task, expected_version=starting_version)
+        return self.repository.save(task, expected_version=task.version)
 
     def approve(
         self,

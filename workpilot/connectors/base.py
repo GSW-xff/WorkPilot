@@ -27,6 +27,10 @@ class ToolAdapter(Protocol):
 
     async def execute(self, action: ActionRequest, idempotency_key: str) -> ActionResult: ...
 
+    async def lookup(
+        self, action: ActionRequest, idempotency_key: str
+    ) -> ActionResult | None: ...
+
     async def verify(
         self, action: ActionRequest, result: ActionResult
     ) -> VerificationResult: ...
@@ -64,4 +68,3 @@ class CapabilityRegistry:
         if Channel.API in metadata.channels:
             return Channel.API
         return sorted(metadata.channels, key=lambda item: item.value)[0]
-
