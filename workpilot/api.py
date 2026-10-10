@@ -29,6 +29,7 @@ from workpilot.credentials import InMemorySecretStore
 from workpilot.db.repository import SQLAlchemyTaskRepository, create_database_engine
 from workpilot.knowledge import KnowledgeError, KnowledgeService, LocalObjectStore
 from workpilot.mcp import MCPServer
+from workpilot.memory import MemoryPolicyError, MemoryService
 from workpilot.model_gateway import (
     DeterministicModelGateway,
     ModelGateway,
@@ -76,6 +77,23 @@ class FeedbackRequest(BaseModel):
     category: Literal["correct", "incorrect", "confusing", "recovery"]
     rating: int = Field(ge=1, le=5)
     comment: str = Field(default="", max_length=2_000)
+
+
+class MemoryCreateRequest(BaseModel):
+    kind: Literal["episodic", "semantic"]
+    title: str = Field(min_length=1, max_length=200)
+    content: dict[str, object]
+    source_refs: list[str] = Field(min_length=1, max_length=20)
+    source_trust: Literal["system", "trusted", "untrusted"]
+    confidence: float = Field(ge=0, le=1)
+    ttl_days: int = Field(default=30, ge=1, le=365)
+    user_confirmed: bool = False
+
+
+class MemoryUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    content: dict[str, object]
+    confidence: float = Field(ge=0, le=1)
 
 
 async def tenant_context(
@@ -185,6 +203,7 @@ def create_app(
         LocalObjectStore(Path(settings.knowledge_object_dir)),
         max_file_bytes=settings.knowledge_max_file_bytes,
     )
+    memory = MemoryService()
     secret_store = InMemorySecretStore()
     github_oauth = None
     if (
@@ -227,7 +246,7 @@ def create_app(
         CORSMiddleware,
         allow_origins=["http://localhost:3000", "http://127.0.0.1:8000"],
         allow_credentials=False,
-        allow_methods=["DELETE", "GET", "POST"],
+        allow_methods=["DELETE", "GET", "PATCH", "POST"],
         allow_headers=[
             "Content-Type",
             "Idempotency-Key",
@@ -243,6 +262,7 @@ def create_app(
     app.state.auth_verifier = auth_verifier
     app.state.auth_mode = settings.auth_mode
     app.state.knowledge = knowledge
+    app.state.memory = memory
     app.state.fake_adapter = adapter
     app.state.temporal = None
     app.state.github_oauth = github_oauth
@@ -415,6 +435,86 @@ def create_app(
         }
         app.state.feedback.append(item)
         return {"id": item["id"], "accepted": True}
+
+    @app.get("/v1/memories")
+    async def list_memories(
+        request: Request,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, user_id = context
+        principal: Principal = request.state.principal
+        return memory.list(tenant_id, user_id, is_admin=principal.has_role("admin"))
+
+    @app.post("/v1/memories", status_code=201)
+    async def create_memory(
+        body: MemoryCreateRequest,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, user_id = context
+        try:
+            return memory.create(
+                tenant_id=tenant_id,
+                owner_id=user_id,
+                **body.model_dump(),
+            )
+        except MemoryPolicyError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/memories/from-task/{task_id}", status_code=201)
+    async def remember_task(
+        task_id: str,
+        request: Request,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+        ttl_days: Annotated[int, Query(ge=1, le=365)] = 90,
+    ):
+        tenant_id, user_id = context
+        task = service.repository.get(tenant_id, task_id)
+        principal: Principal = request.state.principal
+        if task.user_id != user_id and not principal.has_role("admin"):
+            raise HTTPException(status_code=403, detail="only the task owner can remember it")
+        try:
+            return memory.remember_task(task, user_id, ttl_days)
+        except MemoryPolicyError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.patch("/v1/memories/{memory_id}")
+    async def update_memory(
+        memory_id: str,
+        body: MemoryUpdateRequest,
+        request: Request,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ):
+        tenant_id, user_id = context
+        principal: Principal = request.state.principal
+        try:
+            return memory.update(
+                tenant_id,
+                user_id,
+                memory_id,
+                is_admin=principal.has_role("admin"),
+                **body.model_dump(),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="memory not found") from exc
+
+    @app.delete("/v1/memories/{memory_id}", status_code=204)
+    async def delete_memory(
+        memory_id: str,
+        request: Request,
+        context: Annotated[tuple[str, str], Depends(tenant_context)],
+    ) -> Response:
+        tenant_id, user_id = context
+        principal: Principal = request.state.principal
+        try:
+            memory.delete(
+                tenant_id,
+                user_id,
+                memory_id,
+                is_admin=principal.has_role("admin"),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="memory not found") from exc
+        return Response(status_code=204)
 
     @app.get("/v1/tasks/{task_id}")
     async def get_task(

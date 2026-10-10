@@ -67,6 +67,7 @@ class ProductConsoleApiTest(unittest.IsolatedAsyncioTestCase):
             "计划 DAG",
             "实时 Timeline",
             "知识与引用",
+            "受控 Memory",
             "恢复中心",
             "评测看板",
             "导出审计包",
