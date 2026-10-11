@@ -158,6 +158,61 @@ class GitHubOAuthManager:
         self.accounts[(tenant_id, account_id)] = account
         return account
 
+    async def inspect_token(self, tenant_id: str, account_id: str) -> dict[str, Any]:
+        account = self.accounts[(tenant_id, account_id)]
+        token = self.secret_store.get(tenant_id, account.credential_ref)
+        response = await self._oauth_application_request("POST", token)
+        payload = response.json()
+        return {
+            "valid": True,
+            "scopes": sorted(str(scope) for scope in payload.get("scopes", [])),
+            "app": {
+                "name": payload.get("app", {}).get("name"),
+                "client_id": payload.get("app", {}).get("client_id"),
+            },
+            "user": {
+                "id": payload.get("user", {}).get("id"),
+                "login": payload.get("user", {}).get("login"),
+            },
+            "expires_at": payload.get("expires_at"),
+        }
+
+    async def revoke_remote(self, tenant_id: str, account_id: str) -> ConnectorAccount:
+        account = self.accounts[(tenant_id, account_id)]
+        token = self.secret_store.get(tenant_id, account.credential_ref)
+        await self._oauth_application_request("DELETE", token, accept_not_found=True)
+        return self.revoke(tenant_id, account_id)
+
+    async def _oauth_application_request(
+        self,
+        method: str,
+        token: str,
+        *,
+        accept_not_found: bool = False,
+    ) -> httpx.Response:
+        client = self.client or httpx.AsyncClient()
+        owns_client = self.client is None
+        try:
+            response = await client.request(
+                method,
+                f"{self.api_base_url}/applications/{self.client_id}/token",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+                },
+                auth=httpx.BasicAuth(self.client_id, self.client_secret),
+                json={"access_token": token},
+                timeout=15,
+            )
+            if not (accept_not_found and response.status_code == 404):
+                response.raise_for_status()
+            return response
+        except httpx.HTTPError as exc:
+            raise ConnectorError("GitHub OAuth token operation failed", retryable=True) from exc
+        finally:
+            if owns_client:
+                await client.aclose()
+
     def _state(self, tenant_id: str, user_id: str) -> str:
         payload = {
             "tenant_id": tenant_id,
@@ -354,7 +409,7 @@ class GitHubAdapter:
                         )
                     except (httpx.TimeoutException, httpx.NetworkError) as exc:
                         self._record_failure()
-                        if attempt < self.max_retries:
+                        if method == "GET" and attempt < self.max_retries:
                             await asyncio.sleep(0.05 * 2**attempt)
                             continue
                         raise ConnectorError(
@@ -373,10 +428,23 @@ class GitHubAdapter:
                             )
                             continue
                         raise ConnectorRateLimited()
+                    if response.status_code >= 500 and method != "GET":
+                        self._record_failure()
+                        raise ConnectorError(
+                            f"GitHub HTTP {response.status_code} left write outcome unknown",
+                            retryable=True,
+                            outcome_unknown=True,
+                        )
                     if response.status_code >= 500 and attempt < self.max_retries:
                         self._record_failure()
                         await asyncio.sleep(0.05 * 2**attempt)
                         continue
+                    if response.status_code >= 500:
+                        self._record_failure()
+                        raise ConnectorError(
+                            f"GitHub HTTP {response.status_code}",
+                            retryable=True,
+                        )
                     if response.status_code >= 400:
                         raise ConnectorRejected(f"GitHub HTTP {response.status_code}")
                     self._failures = 0

@@ -245,7 +245,11 @@ class ConnectorApiTest(unittest.IsolatedAsyncioTestCase):
                 "X-GitHub-Delivery": "delivery-api-1",
             },
         )
-        self.assertEqual({"accepted": True, "action": "opened"}, webhook.json())
+        payload = webhook.json()
+        self.assertTrue(payload["accepted"])
+        self.assertEqual("opened", payload["action"])
+        self.assertEqual("delivery-api-1", payload["evidence"]["delivery_id"])
+        self.assertTrue(payload["evidence"]["signature_valid"])
 
 
 if __name__ == "__main__":

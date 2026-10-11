@@ -11,6 +11,8 @@ V3_ARCHITECTURE = ROOT / "docs" / "architecture-v3.md"
 RESUME_EVIDENCE = ROOT / "docs" / "resume-evidence.md"
 V4_PLAN = ROOT / "docs" / "v4-completion-and-next-steps.md"
 PLANNING_SAFETY = ROOT / "docs" / "planning-safety-gate.md"
+MODEL_COMPARISON = ROOT / "docs" / "model-comparison-evaluation.md"
+GITHUB_SANDBOX = ROOT / "docs" / "github-sandbox-runbook.md"
 
 
 class MvpPlanDocumentationTest(unittest.TestCase):
@@ -232,7 +234,7 @@ class V4CompletionPlanTest(unittest.TestCase):
         self.assertIn("当前项目已经足够进入简历", self.content)
 
     def test_plan_keeps_future_targets_separate_from_current_results(self) -> None:
-        self.assertIn("无真实 GitHub 沙箱 E2E", self.content)
+        self.assertIn("尚无真实 GitHub 报告", self.content)
         self.assertIn("没有视频、参与者数据或 SUS 结果", self.content)
 
     def test_planning_safety_design_documents_fail_closed_boundary(self) -> None:
@@ -247,6 +249,14 @@ class V4CompletionPlanTest(unittest.TestCase):
         ):
             with self.subTest(item=item):
                 self.assertIn(item, content)
+
+    def test_external_evidence_runbooks_do_not_claim_missing_runs(self) -> None:
+        model = MODEL_COMPARISON.read_text()
+        github = GITHUB_SANDBOX.read_text()
+        for item in ("blind-review.jsonl", "P50/P95", "没有两个模型 Key"):
+            self.assertIn(item, model)
+        for item in ("响应丢失", "远程撤销", "尚无真实 GitHub 沙箱通过报告"):
+            self.assertIn(item, github)
 
 
 if __name__ == "__main__":

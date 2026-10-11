@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
-from workpilot.connectors.base import ConnectorRejected
+from workpilot.connectors.base import ConnectorError, ConnectorRejected
 from workpilot.connectors.github import (
     ConnectorAccount,
     GitHubAdapter,
@@ -30,6 +30,19 @@ class GitHubOAuthTest(unittest.IsolatedAsyncioTestCase):
             if request.url.path == "/user":
                 self.assertEqual("Bearer github-secret-token", request.headers["Authorization"])
                 return httpx.Response(200, json={"id": 42, "login": "workpilot-sandbox"})
+            if request.url.path == "/applications/client-id/token":
+                self.assertTrue(request.headers["Authorization"].startswith("Basic "))
+                if request.method == "POST":
+                    return httpx.Response(
+                        200,
+                        json={
+                            "scopes": ["repo", "read:user"],
+                            "app": {"name": "WorkPilot", "client_id": "client-id"},
+                            "user": {"id": 42, "login": "workpilot-sandbox"},
+                        },
+                    )
+                if request.method == "DELETE":
+                    return httpx.Response(204)
             return httpx.Response(404)
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -51,7 +64,10 @@ class GitHubOAuthTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("tenant-a", account.tenant_id)
         self.assertEqual("github-secret-token", secrets.get("tenant-a", account.credential_ref))
         self.assertNotIn("github-secret-token", account.model_dump_json())
-        revoked = manager.revoke("tenant-a", account.id)
+        inspection = await manager.inspect_token("tenant-a", account.id)
+        self.assertEqual(["read:user", "repo"], inspection["scopes"])
+        self.assertNotIn("github-secret-token", json.dumps(inspection))
+        revoked = await manager.revoke_remote("tenant-a", account.id)
         self.assertEqual("REVOKED", revoked.status)
         with self.assertRaises(SecretNotFoundError):
             secrets.get("tenant-a", account.credential_ref)
@@ -195,6 +211,61 @@ class GitHubAdapterContractTest(unittest.IsolatedAsyncioTestCase):
         await client.aclose()
         self.assertTrue(result.success)
         self.assertEqual(2, calls)
+
+    async def test_response_loss_never_retries_post_and_recovers_by_remote_lookup(self) -> None:
+        issue: dict[str, object] | None = None
+        post_count = 0
+
+        def lossy_handler(request: httpx.Request) -> httpx.Response:
+            nonlocal issue, post_count
+            if request.url.path == "/search/issues":
+                return httpx.Response(200, json={"items": [issue] if issue else []})
+            if request.method == "POST" and request.url.path == "/repos/acme/demo/issues":
+                post_count += 1
+                body = json.loads(request.content)
+                issue = {
+                    "id": 202,
+                    "number": 9,
+                    "title": body["title"],
+                    "state": "open",
+                    "body": body["body"],
+                    "html_url": "https://github.test/acme/demo/issues/9",
+                }
+                raise httpx.ReadTimeout("response lost after commit", request=request)
+            return httpx.Response(404)
+
+        lossy_client = httpx.AsyncClient(transport=httpx.MockTransport(lossy_handler))
+        adapter = GitHubAdapter(
+            self.adapter.account,
+            self.secrets,
+            client=lossy_client,
+            api_base_url="https://api.github.test",
+        )
+        action = ActionRequest(
+            tenant_id="tenant-a",
+            task_id="task",
+            step_id="create",
+            capability="github.issue.create",
+            parameters={"repo": "acme/demo", "title": "Recover safely", "body": "Details"},
+            channel=Channel.API,
+        )
+        with self.assertRaises(ConnectorError) as caught:
+            await adapter.execute(action, "response-loss-key")
+        self.assertTrue(caught.exception.outcome_unknown)
+        self.assertEqual(1, post_count)
+
+        recovery_client = httpx.AsyncClient(transport=httpx.MockTransport(lossy_handler))
+        recovered = await GitHubAdapter(
+            self.adapter.account,
+            self.secrets,
+            client=recovery_client,
+            api_base_url="https://api.github.test",
+        ).execute(action, "response-loss-key")
+        self.assertTrue(recovered.duplicate)
+        self.assertEqual("202", recovered.remote_id)
+        self.assertEqual(1, post_count)
+        await lossy_client.aclose()
+        await recovery_client.aclose()
 
 
 class GitHubWebhookTest(unittest.TestCase):

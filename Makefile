@@ -1,4 +1,4 @@
-.PHONY: backup benchmark dev db-up db-down eval-safety helm-lint migrate restore-drill test test-browser test-postgres test-temporal lint typecheck check
+.PHONY: backup benchmark dev db-up db-down eval-models eval-safety github-sandbox helm-lint migrate restore-drill test test-browser test-postgres test-temporal lint typecheck check
 
 BACKUP_PATH ?= /private/tmp/workpilot.dump
 
@@ -13,6 +13,12 @@ dev:
 
 eval-safety:
 	uv run workpilot-eval --output evals/reports/latest --repetitions 3 --enforce-safety
+
+eval-models:
+	uv run workpilot-model-eval --profiles evals/model-profiles.local.json --repetitions 3 --enforce-quality
+
+github-sandbox:
+	uv run workpilot-github-sandbox --repository $(WORKPILOT_GITHUB_SANDBOX_REPO)
 
 db-up:
 	docker compose -f deploy/docker-compose.yml up -d postgres
