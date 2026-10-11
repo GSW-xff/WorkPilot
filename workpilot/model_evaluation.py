@@ -34,6 +34,7 @@ from workpilot.model_gateway import (
     RunBudget,
 )
 from workpilot.planner import PlanningDecisionError, StructuredPlanner
+from workpilot.resources import bundled_path
 
 
 class ModelProfile(BaseModel):
@@ -575,7 +576,11 @@ async def _main_async(arguments: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run repeatable real-model planner comparisons")
     parser.add_argument("--profiles", type=Path, required=True)
-    parser.add_argument("--dataset", type=Path, default=Path("evals/datasets/workpilot-v1.jsonl"))
+    parser.add_argument(
+        "--dataset",
+        type=Path,
+        default=bundled_path("evals", "datasets", "workpilot-v1.jsonl"),
+    )
     parser.add_argument("--output", type=Path, default=Path("evals/reports/model-comparison"))
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--enforce-quality", action="store_true")

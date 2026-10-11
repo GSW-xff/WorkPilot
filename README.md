@@ -2,6 +2,9 @@
 
 WorkPilot 是一个面向企业跨系统办公流程的安全执行 Agent。它把自然语言目标转换为结构化任务 DAG，在确定性策略、人工审批、幂等账本和远端验证的约束下执行。当前已有可替换的 ModelGateway、结构化 Planner、上下文信任标签与预算、PostgreSQL 持久化和 Temporal 长任务控制流。
 
+> 项目状态：`0.2.0`（Alpha）。本地 Demo、自动化测试和离线评测可复现；真实云模型、GitHub
+> OAuth 沙箱和生产环境能力只有在提供外部凭据并完成对应验收后才算通过。
+
 详细产品与技术方案见 [MVP 完整实现方案](docs/mvp-implementation-plan.md)，本次实现边界见 [初版架构与状态](docs/initial-architecture.md)，持久化与可靠执行路线见 [V2 修改设计方案](docs/v2-design-plan.md)，面向 Agent 岗位的能力盘点、证据标准和后续实施顺序见 [V3 面试竞争力与产品完整性方案](docs/v3-interview-advantage-plan.md)。
 
 ## 已实现
@@ -39,11 +42,17 @@ WorkPilot 是一个面向企业跨系统办公流程的安全执行 Agent。它�
 需要 Python 3.12 或更高版本以及 [uv](https://docs.astral.sh/uv/)：
 
 ```bash
-uv sync --extra dev
+git clone <repository-url>
+cd WorkPilot
+uv sync --extra dev --locked
+make check
 uv run workpilot
 ```
 
 打开 <http://127.0.0.1:8000> 使用工作台，接口文档位于 <http://127.0.0.1:8000/docs>。
+
+如需自定义配置，可以复制 `.env.example` 并运行 `uv run --env-file .env workpilot`。示例文件默认
+仍使用内存仓储、确定性 Planner 且不连接外部服务，因此不会因为误加载配置而产生远端副作用。
 
 默认使用确定性 Demo Planner。离线验证结构化链路可设置
 `WORKPILOT_PLANNER_MODE=fake`；调用 OpenAI-compatible 云模型时设置
@@ -184,3 +193,10 @@ V3 C4/关键时序见 [架构图](docs/architecture-v3.md)，SLO 计算口径见
 [可执行研究协议](docs/user-study-protocol.md)，不伪造参与者或结果。
 最新整体完成度、当前数据与分阶段后续路线见
 [补充方案 4](docs/v4-completion-and-next-steps.md)。
+
+## 参与贡献与发布
+
+- 开发流程与 PR 要求：[CONTRIBUTING.md](CONTRIBUTING.md)
+- 漏洞私下报告方式：[SECURITY.md](SECURITY.md)
+- 首次上传 GitHub 与仓库设置：[GitHub 发布清单](docs/github-publishing.md)
+- 开源许可：[MIT License](LICENSE)

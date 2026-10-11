@@ -8,6 +8,16 @@ version = "0.2.0"
 description = "A safe, auditable MVP runtime for cross-system office tasks"
 readme = "README.md"
 requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "WorkPilot contributors" }]
+keywords = ["agent", "automation", "fastapi", "temporal", "workflow"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Office/Business",
+]
 dependencies = [
   "alembic>=1.14,<2",
   "fastapi>=0.115,<1",
@@ -47,7 +57,7 @@ workpilot-benchmark = "benchmarks.api_load:main"
 workpilot-worker = "workpilot.worker:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["workpilot", "benchmarks"]
+packages = ["workpilot", "apps", "benchmarks", "evals"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
