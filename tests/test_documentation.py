@@ -1,4 +1,5 @@
 import unittest
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +16,7 @@ MODEL_COMPARISON = ROOT / "docs" / "model-comparison-evaluation.md"
 GITHUB_SANDBOX = ROOT / "docs" / "github-sandbox-runbook.md"
 PROJECT_OVERVIEW = ROOT / "docs" / "project-overview-and-agent-interview.md"
 NEWCOMER_GUIDE = ROOT / "docs" / "newcomer-agent-learning-guide.md"
+NEWCOMER_GUIDE_DOCX = ROOT / "docs" / "WorkPilot-新人学习与面试讲解手册.docx"
 
 
 class MvpPlanDocumentationTest(unittest.TestCase):
@@ -342,6 +344,26 @@ class NewcomerLearningGuideTest(unittest.TestCase):
     def test_readme_links_to_newcomer_guide(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("docs/newcomer-agent-learning-guide.md", readme)
+
+    def test_word_guide_is_valid_and_contains_core_content(self) -> None:
+        self.assertTrue(NEWCOMER_GUIDE_DOCX.exists())
+        self.assertGreater(NEWCOMER_GUIDE_DOCX.stat().st_size, 50_000)
+        with zipfile.ZipFile(NEWCOMER_GUIDE_DOCX) as archive:
+            self.assertIn("word/document.xml", archive.namelist())
+            document_xml = archive.read("word/document.xml").decode("utf-8")
+            for item in (
+                "WorkPilot 新人学习与面试讲解手册",
+                "Planner–Executor–Verifier",
+                "lookup-before-retry",
+                "HR 和技术面试常见追问",
+                "四周学习路线",
+            ):
+                with self.subTest(item=item):
+                    self.assertIn(item, document_xml)
+
+    def test_readme_links_to_word_guide(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("docs/WorkPilot-新人学习与面试讲解手册.docx", readme)
 
 
 if __name__ == "__main__":
