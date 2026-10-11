@@ -14,6 +14,7 @@ PLANNING_SAFETY = ROOT / "docs" / "planning-safety-gate.md"
 MODEL_COMPARISON = ROOT / "docs" / "model-comparison-evaluation.md"
 GITHUB_SANDBOX = ROOT / "docs" / "github-sandbox-runbook.md"
 PROJECT_OVERVIEW = ROOT / "docs" / "project-overview-and-agent-interview.md"
+NEWCOMER_GUIDE = ROOT / "docs" / "newcomer-agent-learning-guide.md"
 
 
 class MvpPlanDocumentationTest(unittest.TestCase):
@@ -294,6 +295,53 @@ class ProjectOverviewDocumentationTest(unittest.TestCase):
     def test_readme_links_to_project_overview(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("docs/project-overview-and-agent-interview.md", readme)
+
+
+class NewcomerLearningGuideTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.content = NEWCOMER_GUIDE.read_text(encoding="utf-8")
+
+    def test_guide_covers_beginner_professional_and_technology_learning(self) -> None:
+        required = [
+            "## 1. 先用最通俗的话理解 WorkPilot",
+            "## 2. 初学者必须掌握的 Agent 基础概念",
+            "## 3. 用专业语言讲解 WorkPilot",
+            "## 5. 技术栈总览",
+            "## 6. 各技术栈是什么、为什么使用、通常怎样使用",
+            "## 11. HR 和技术面试常见追问",
+            "## 13. 四周学习路线",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+    def test_guide_teaches_core_safety_and_reliability_boundaries(self) -> None:
+        required = [
+            "模型输出不可信",
+            "参数哈希",
+            "lookup-before-retry",
+            "at-least-once",
+            "PostgreSQL FORCE RLS",
+            "离线确定性 Planner 回归",
+            "不能表述为真实企业语料上的泛化效果",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+    def test_guide_requires_truthful_personal_contribution(self) -> None:
+        for item in (
+            "不应把别人已经完成的工作描述成自己从零独立完成",
+            "只有自己真正做过的部分才使用“我设计”“我实现”",
+            "有至少一个自己完成的 commit、测试和结果",
+        ):
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+    def test_readme_links_to_newcomer_guide(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("docs/newcomer-agent-learning-guide.md", readme)
 
 
 if __name__ == "__main__":

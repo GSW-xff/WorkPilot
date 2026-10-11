@@ -53,7 +53,7 @@ WorkPilot 当前已经达到**可以写入简历并进行现场演示的工程�
 
 ### 2.1 自动化与真实集成
 
-- 124 项测试已被收集；默认离线套件通过，5 项 gated 测试按环境显式启用；
+- 默认离线测试套件通过；5 项 gated 测试按环境显式启用；具体数量以最新测试收集结果为准；
 - 真实 PostgreSQL RLS 对抗测试：3 项通过；
 - 真实 Temporal Worker 重启、Update 和 History replay：1 项通过，既有报告记录 19.78 秒；
 - 真实 Playwright Chromium：2 项通过；
