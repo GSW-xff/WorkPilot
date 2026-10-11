@@ -13,6 +13,7 @@ V4_PLAN = ROOT / "docs" / "v4-completion-and-next-steps.md"
 PLANNING_SAFETY = ROOT / "docs" / "planning-safety-gate.md"
 MODEL_COMPARISON = ROOT / "docs" / "model-comparison-evaluation.md"
 GITHUB_SANDBOX = ROOT / "docs" / "github-sandbox-runbook.md"
+PROJECT_OVERVIEW = ROOT / "docs" / "project-overview-and-agent-interview.md"
 
 
 class MvpPlanDocumentationTest(unittest.TestCase):
@@ -257,6 +258,42 @@ class V4CompletionPlanTest(unittest.TestCase):
             self.assertIn(item, model)
         for item in ("响应丢失", "远程撤销", "尚无真实 GitHub 沙箱通过报告"):
             self.assertIn(item, github)
+
+
+class ProjectOverviewDocumentationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.content = PROJECT_OVERVIEW.read_text(encoding="utf-8")
+
+    def test_overview_covers_the_requested_project_dimensions(self) -> None:
+        required = [
+            "## 2. 项目面向的用户",
+            "## 3. 项目作用与业务价值",
+            "## 5. 已具备的功能",
+            "## 7. 使用到的工具和技术",
+            "## 9. 面向互联网大厂 Agent 岗位的优势",
+            "## 10. 建议写进简历的内容",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+    def test_overview_marks_resume_readiness_and_evidence_boundaries(self) -> None:
+        required = [
+            "已经达到可写入简历",
+            "180/180 通过",
+            "未授权写入从 0.3333 降至 0",
+            "重复业务副作用 0",
+            "离线确定性",
+            "不能写成已完成成果",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+    def test_readme_links_to_project_overview(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("docs/project-overview-and-agent-interview.md", readme)
 
 
 if __name__ == "__main__":
