@@ -9,6 +9,7 @@ from typing import Any
 from workpilot.connectors.base import ConnectorRejected
 from workpilot.context import detect_prompt_injection
 from workpilot.mcp import validate_mcp_description
+from workpilot.resources import bundled_path
 from workpilot.security import redact
 
 
@@ -98,7 +99,11 @@ def render_markdown(report: dict[str, Any]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=Path, default=Path("evals/security_cases.jsonl"))
+    parser.add_argument(
+        "--dataset",
+        type=Path,
+        default=bundled_path("evals", "security_cases.jsonl"),
+    )
     parser.add_argument("--output", type=Path, default=Path("evals/reports/security-v1"))
     args = parser.parse_args()
     report = run(args.dataset)

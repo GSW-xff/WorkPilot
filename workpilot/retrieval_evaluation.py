@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from workpilot.knowledge import KnowledgeService, LocalObjectStore
+from workpilot.resources import bundled_path
 
 
 def evaluate(dataset_path: Path) -> dict[str, Any]:
@@ -81,7 +82,11 @@ def render_markdown(report: dict[str, Any]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=Path, default=Path("evals/retrieval_cases.jsonl"))
+    parser.add_argument(
+        "--dataset",
+        type=Path,
+        default=bundled_path("evals", "retrieval_cases.jsonl"),
+    )
     parser.add_argument("--output", type=Path, default=Path("evals/reports/retrieval-v1"))
     args = parser.parse_args()
     report = evaluate(args.dataset)

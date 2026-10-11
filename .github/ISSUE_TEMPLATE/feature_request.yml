@@ -1,0 +1,33 @@
+name: 功能建议
+description: 提议范围明确、可验证的改进
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 请描述用户场景和当前限制，而不只是期望的实现。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 说明预期行为、范围和可验收标准。
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: 安全与兼容性影响
+      description: 是否影响权限、审批、外部写入、租户隔离、幂等或现有 API？
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索现有 Issue，未找到相同建议。
+          required: true

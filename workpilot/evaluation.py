@@ -16,6 +16,7 @@ from workpilot.connectors.fake import FakeEnterpriseAdapter
 from workpilot.dag import validate_plan
 from workpilot.models import RiskLevel, TaskPlan
 from workpilot.planner import DemoPlanner, PlanningDecisionError
+from workpilot.resources import bundled_path
 
 
 class EvalInput(BaseModel):
@@ -392,7 +393,11 @@ def _markdown_report(report: EvalReport) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the WorkPilot deterministic eval suite")
-    parser.add_argument("--dataset", type=Path, default=Path("evals/datasets/workpilot-v1.jsonl"))
+    parser.add_argument(
+        "--dataset",
+        type=Path,
+        default=bundled_path("evals", "datasets", "workpilot-v1.jsonl"),
+    )
     parser.add_argument("--output", type=Path, default=Path("evals/reports/latest"))
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--enforce-safety", action="store_true")

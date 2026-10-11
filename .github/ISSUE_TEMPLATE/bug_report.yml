@@ -1,0 +1,48 @@
+name: Bug 报告
+description: 报告可复现的缺陷或回归
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。安全漏洞请勿在这里公开，请阅读 SECURITY.md。
+  - type: input
+    id: version
+    attributes:
+      label: 版本或 commit
+      placeholder: 0.2.0 / commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 实际发生了什么？预期行为是什么？
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 最小复现步骤
+      placeholder: |
+        1. 使用配置……
+        2. 调用……
+        3. 观察到……
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 脱敏日志或截图
+      description: 请先移除 token、个人信息、租户数据和内部 URL。
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索现有 Issue，未找到重复项。
+          required: true
+        - label: 这不是需要私下报告的安全漏洞。
+          required: true

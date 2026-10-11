@@ -1,11 +1,44 @@
+# Python bytecode and tool caches
 __pycache__/
 *.py[cod]
-.pytest_cache/
-.venv/
 .coverage
+.coverage.*
 htmlcov/
-workpilot.db
-*.db-journal
+.pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.hypothesis/
+
+# Virtual environments and local tooling
+.venv/
+venv/
+.python-version
+.idea/
+.vscode/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
 evals/model-profiles.local.json
+
+# Runtime data and generated reports
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+workpilot-objects/
+evals/reports/local/
+evals/reports/latest/
+
+# Python build outputs
+build/
+dist/
+*.egg-info/
+
+# OS and office application files
+.DS_Store
+Thumbs.db
+~$*
+.~lock.*#
+.~*

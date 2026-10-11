@@ -1,4 +1,4 @@
-.PHONY: backup benchmark dev db-up db-down eval-models eval-safety github-sandbox helm-lint migrate restore-drill test test-browser test-postgres test-temporal lint typecheck check
+.PHONY: backup benchmark build check db-down db-up dev eval-models eval-safety github-sandbox helm-lint lint migrate release-check restore-drill test test-browser test-postgres test-temporal typecheck
 
 BACKUP_PATH ?= /private/tmp/workpilot.dump
 
@@ -7,6 +7,9 @@ backup:
 
 benchmark:
 	uv run workpilot-benchmark
+
+build:
+	uv build
 
 dev:
 	uv run workpilot
@@ -54,3 +57,6 @@ typecheck:
 	uv run mypy workpilot
 
 check: lint typecheck test
+
+release-check: check build
+	git diff --check
