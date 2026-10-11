@@ -177,7 +177,8 @@ benchmarks/               可重复 API 延迟、吞吐与容量基线
 项目定位、目标用户、完整功能、技术栈和 Agent 岗位竞争力的集中说明见
 [项目全景与 Agent 岗位面试指南](docs/project-overview-and-agent-interview.md)；
 面向 AI Agent 初学者的概念讲解、技术栈教程、代码阅读路线和面试追问见
-[新人学习与面试讲解手册](docs/newcomer-agent-learning-guide.md)；
+[新人学习与面试讲解手册](docs/newcomer-agent-learning-guide.md)，可下载的 Word 版本见
+[WorkPilot 新人学习与面试讲解手册](docs/WorkPilot-新人学习与面试讲解手册.docx)；
 V3 C4/关键时序见 [架构图](docs/architecture-v3.md)，SLO 计算口径见
 [SLO、误差预算与告警](docs/slo-and-alerts.md)。未完成的 5 人研究只提供
 [可执行研究协议](docs/user-study-protocol.md)，不伪造参与者或结果。
