@@ -31,11 +31,13 @@ Planner、Timeline、Artifact 和日志只能看到 `secret://...` 引用。开�
 - API 请求带 15 秒上限，并继承 Runtime 的 action deadline；
 - 同一 Adapter 默认最多 4 个并发请求；
 - 429/限流响应遵守 `Retry-After`，5xx/网络错误有有限退避；
+- GET 可在有限预算内重试；POST 遇到网络错误或 5xx 一律标记 outcome unknown，禁止直接重试；
 - 连续网络/5xx 失败会打开 30 秒熔断器；
 - 写操作在正文写入幂等 marker，重试前使用 GitHub Search 对账；
 - Webhook 验证 `X-Hub-Signature-256`，并按 `X-GitHub-Delivery` 拒绝重放；
 - Adapter 会拒绝使用其他租户的 ConnectorAccount；
-- 撤销后 Secret 立即删除，账户状态变为 `REVOKED`。
+- OAuth token 可通过 app/token 接口验证归属与 Scope；撤销先调用 GitHub 远程撤销，成功后
+  再删除本地 Secret 并把账户标记为 `REVOKED`。
 
 ## 测试证据与尚未声明的能力
 
@@ -43,3 +45,7 @@ Planner、Timeline、Artifact 和日志只能看到 `secret://...` 引用。开�
 Issue 契约、幂等查询、限流和 Webhook 进行自动化测试。这些是真实 GitHub HTTP
 契约的离线验证，不是沙箱账号 E2E。在配置用户自己的 GitHub OAuth App 和沙箱
 仓库并跑通前，不应在简历中写“GitHub 沙箱端到端已验收”。
+
+`workpilot-github-sandbox` 提供专用仓库 E2E：OAuth token 检查、严格最小 Scope、Issue/评论、
+重启后远端 marker 对账、真实提交后丢弃响应、Webhook delivery 证据、429/5xx 故障矩阵、清理
+以及 token 远程撤销。操作步骤和证据分级见 [GitHub 沙箱 Runbook](github-sandbox-runbook.md)。

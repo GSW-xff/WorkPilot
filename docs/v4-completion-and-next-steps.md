@@ -1,7 +1,7 @@
 # WorkPilot 补充方案 4：最新版完成情况与后续完善路线
 
-- 文档版本：4.0
-- 基线日期：2026-10-10
+- 文档版本：4.1
+- 基线日期：2026-10-11
 - 代码基线：与本方案所在 Git 提交一致，以仓库内可复现代码、测试和报告为准
 - 目标：明确当前项目能证明什么、还缺什么，以及如何从“可写简历”推进到“强面试证据与准生产验收”
 
@@ -31,12 +31,12 @@ WorkPilot 当前已经达到**可以写入简历并进行现场演示的工程�
 | 维度 | 状态 | 当前成果 | 证据边界 |
 | --- | --- | --- | --- |
 | Agent Runtime | 已实测 | Planner–Executor–Verifier、强类型 DAG、支持域门、澄清/拒绝、重规划 Diff、工具路由、独立验证 | 单 Planner；没有多 Agent 优势证据 |
-| Model/Context | 已实现 | ModelGateway、OpenAI-compatible Provider、结构化输出、一次修复、安全回退、信任标签、Token/成本预算 | 未用真实付费模型跑固定集 |
+| Model/Context | 已实现 | ModelGateway、双模型重复评测、质量阈值、匿名盲审包、结构化输出、安全回退、Token/成本预算 | runner 已验；未用真实付费模型跑固定集 |
 | 安全执行 | 已实测 | R0–R3、R2 参数哈希审批、R3 拒绝、域名白名单、Secret 引用隔离 | 不是渗透测试或生产红队 |
 | 可靠工作流 | 已实测 | Temporal Workflow/Activity、Update/Signal、Worker 重启、History replay | 本地 Temporal 开发服务，非 HA 集群 |
 | 副作用一致性 | 已实测 | 稳定幂等键、RESERVED/UNKNOWN、远端查询后恢复、独立 verify | Fake Adapter 失败模型已验；真实 SaaS 尚缺 |
 | 数据持久化 | 已实测 | SQLAlchemy/Alembic、乐观锁、事务 Outbox、PostgreSQL FORCE RLS | 知识、Memory 和部分运行服务仍非统一生产持久层 |
-| 企业连接器 | 已实现 | GitHub Issues OAuth/HTTP Adapter、限流、熔断、Scope、Webhook 签名/防重放、幂等 marker | MockTransport 契约通过；无真实 GitHub 沙箱 E2E |
+| 企业连接器 | 已实现 | GitHub OAuth token 检查/远程撤销、写入 UNKNOWN 保护、沙箱 E2E runner、Webhook 防重放、幂等 marker | runner 与故障注入通过；无凭证，尚无真实 GitHub 报告 |
 | MCP | 已实现 | 只读工具桥、身份校验、Schema 指纹、参数约束 | 未验证多个第三方 MCP Server 的兼容性 |
 | Browser | 已实测 | Playwright 白名单、稳定 selector、前后截图/DOM 证据、页面注入标记 | 本地受控页面；不是公网网站兼容矩阵 |
 | Knowledge/RAG | 部分完成 | PDF/DOCX/XLSX/Markdown/TXT 解析、安全门、ACL、混合检索、精确引用和原文预览 | 本地对象存储与 hash embedding；非 S3/MinIO + pgvector 生产链路 |
@@ -53,7 +53,7 @@ WorkPilot 当前已经达到**可以写入简历并进行现场演示的工程�
 
 ### 2.1 自动化与真实集成
 
-- 108 项测试已被收集；默认离线套件通过，5 项 gated 测试按环境显式启用；
+- 124 项测试已被收集；默认离线套件通过，5 项 gated 测试按环境显式启用；
 - 真实 PostgreSQL RLS 对抗测试：3 项通过；
 - 真实 Temporal Worker 重启、Update 和 History replay：1 项通过，既有报告记录 19.78 秒；
 - 真实 Playwright Chromium：2 项通过；
@@ -102,20 +102,32 @@ WorkPilot 当前已经达到**可以写入简历并进行现场演示的工程�
 当前边界：支持域识别是窄域确定性规则，目的是在模型前 fail closed；它不代表开放域意图识别
 已经解决，也不替代真实模型对比、对抗红队或 GitHub 沙箱 E2E。
 
-#### P0-2 运行真实模型对比评测
+#### P0-2 真实模型对比评测（工程闭环完成，外部运行待凭证）
 
 用同一数据集、Prompt/Schema 版本和预算，至少对比“确定性基线、一个主模型、一个低成本
 模型”，每条至少重复 3 次。记录成功率、Tool precision/recall、安全违规、修复率、P50/P95、
 输入/输出 Token、成本和方差。对失败样本做盲审，不能只使用 LLM-as-judge 自证。
 
-交付物：版本化 JSON/Markdown 报告、逐 case trace id、成本清单、失败分类和回归阈值。
+已完成 `workpilot-model-eval`：强制至少两个 profile，同一固定集默认各重复 3 次；报告包含
+确定性基线、逐 case trace id、Tool/Safety、native plan、fallback、repair、P50/P95、Token、
+成本、方差、失败分类和 per-profile 质量阈值，并生成隐藏模型身份的人工盲审包及独立解盲表。
+API Key、Prompt 正文不写入报告。
 
-#### P0-3 完成 GitHub OAuth 沙箱 E2E
+当前未完成项只有真实外部执行和人工评分：本机未配置两个模型 API Key，不能生成或宣称真实
+模型成绩。配置方法见 `docs/model-comparison-evaluation.md`。
+
+#### P0-3 GitHub OAuth 沙箱 E2E（工程闭环完成，外部运行待凭证）
 
 在专用组织/仓库验收授权、最小 Scope、创建 Issue、评论、读取验证、撤销、Webhook 防重放、
 429/5xx 和“远端成功但响应丢失”。最后用 GitHub 远端对象 id 证明重复副作用为 0。
 
-交付物：可清理的 sandbox fixture、脱敏 HTTP/Trace 证据、故障矩阵和 connector runbook。
+已完成 `workpilot-github-sandbox` 与安全修复：验证 OAuth token 属于指定 App 且 Scope 无缺失/
+多授予；创建并验证 Issue/评论；用新 Adapter 进程远端 lookup；对真实成功 POST 丢弃客户端响应
+后以 marker 恢复；关闭临时 Issue、删除评论并远程撤销 token。429/5xx 故障矩阵会区分只读重试
+和写入 UNKNOWN，Webhook 报告区分本地签名契约与真实 GitHub delivery。
+
+当前未完成项只有 GitHub 外部执行：本机没有 OAuth App、一次性 token、专用仓库和真实 webhook
+delivery 证据，因此不生成“通过”的沙箱报告。Runbook 见 `docs/github-sandbox-runbook.md`。
 
 ### 3.2 P1：把本地工程闭环推进到 staging 运维闭环
 
@@ -169,7 +181,7 @@ Temporal、对象存储、OIDC、Secret Manager 和监控；镜像只允许 dige
 | 阶段 | 建议周期 | 关键任务 | 阶段出口 |
 | --- | --- | --- | --- |
 | A：安全基线收口 | 已完成 | 支持域/拒绝/澄清、重跑 60 条任务集、CI 零容忍门禁 | 180/180 通过，unauthorized write=0 |
-| B：真实外部证据 | 5–7 天 | 真实模型对比、GitHub sandbox E2E、真实 IdP | 三套脱敏、可复现报告 |
+| B：真实外部证据 | 工具已完成，待凭证 | 运行双模型对比、GitHub sandbox E2E、真实 IdP | 三套脱敏、可复现报告 |
 | C：staging 数据与观测 | 1–2 周 | S3/MinIO、pgvector、Memory/Eval 持久化、队列/Outbox 指标 | 重启不丢数据，关键 SLO 可计算 |
 | D：生产化演练 | 1 周 | K8s/IaC、端到端压测、PITR、故障矩阵、告警通知 | staging 验收报告和容量边界 |
 | E：用户与展示 | 3–5 天 | 5 人研究、修复复测、正式 Demo 视频 | 匿名数据、改版证据、可公开演示 |
@@ -207,6 +219,8 @@ Temporal、对象存储、OIDC、Secret Manager 和监控；镜像只允许 dige
 - Agent 基线：`evals/reports/baseline-v1/`；
 - 当前支持域门基线：`evals/reports/intent-gated-v2/`；
 - 规划安全设计：`docs/planning-safety-gate.md`；
+- 模型评测运行手册：`docs/model-comparison-evaluation.md`；
+- GitHub 沙箱运行手册：`docs/github-sandbox-runbook.md`；
 - 安全/检索：`evals/reports/security-v1/`、`evals/reports/retrieval-v1/`；
 - Temporal/RLS/备份：`docs/reports/`；
 - SLO 与 Runbook：`docs/slo-and-alerts.md`、`docs/observability.md`；

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from contextlib import asynccontextmanager
@@ -907,21 +908,34 @@ def create_app(
             raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
         tenant_id, _ = context
         try:
-            return github_oauth.revoke(tenant_id, account_id)
+            return await github_oauth.revoke_remote(tenant_id, account_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="connector account not found") from exc
+        except ConnectorError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     @app.post("/v1/connectors/github/webhook")
     async def github_webhook_event(request: Request):
         if github_webhook is None:
             raise HTTPException(status_code=503, detail="GitHub webhook is not configured")
         try:
+            body = await request.body()
             payload = github_webhook.verify(
-                await request.body(),
+                body,
                 request.headers.get("X-Hub-Signature-256", ""),
                 request.headers.get("X-GitHub-Delivery", ""),
             )
-            return {"accepted": True, "action": payload.get("action")}
+            return {
+                "accepted": True,
+                "action": payload.get("action"),
+                "evidence": {
+                    "delivery_id": request.headers.get("X-GitHub-Delivery"),
+                    "event": request.headers.get("X-GitHub-Event"),
+                    "repository": payload.get("repository", {}).get("full_name"),
+                    "payload_sha256": hashlib.sha256(body).hexdigest(),
+                    "signature_valid": True,
+                },
+            }
         except (ConnectorError, json.JSONDecodeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

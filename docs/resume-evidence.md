@@ -22,6 +22,7 @@
 | Playwright Chromium 真实浏览器测试 2 passed | `tests/test_browser_adapter.py` | 本地页面，不是第三方站点兼容矩阵 |
 | 300 ops、并发 20、0% 错误、813.90 req/s | `benchmarks/reports/api-baseline-v1/` | 内存仓储/in-process ASGI，非生产容量 |
 | Helm lint 与受限容器运行通过 | `docs/deployment-and-supply-chain.md` | 本地验证；远程供应链 CI 需看 GitHub 记录 |
+| 双模型评测与 GitHub 沙箱验收工具链 | `workpilot/model_evaluation.py`、`workpilot/github_sandbox.py` | 可以写“搭建工具链”；没有外部报告前不能写真实模型/SaaS结果 |
 
 ## 尚不能写成已完成
 
@@ -29,6 +30,14 @@
 - 月度 99.9% SLO、生产告警通知和多区域恢复；
 - 5 人可用性研究、SUS 分数和 Demo 视频；
 - 多 Agent 优于单 Agent（参见 ADR-003）。
+
+## 已实现但等待外部凭证的证据入口
+
+- `workpilot-model-eval`：要求至少两个真实模型，每条任务默认重复 3 次，输出逐 case trace、
+  Token/成本、P50/P95、方差、fallback/repair、质量阈值和匿名人工盲审包；
+- `workpilot-github-sandbox`：面向一次性 OAuth token 和专用仓库，执行写入/读取/验证、远端
+  幂等、真实响应丢失、清理与远程撤销；
+- 本机当前未配置上述凭证，因此没有把 contract test 或 MockTransport 结果包装成外部实测。
 
 ## 建议简历表述
 

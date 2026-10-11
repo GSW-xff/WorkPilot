@@ -1,0 +1,35 @@
+{
+  "version": "model-comparison-v1",
+  "prompt_version": "planner-v1",
+  "schema_version": "task-plan-v1",
+  "profiles": [
+    {
+      "id": "primary",
+      "provider": "replace-me-provider",
+      "model": "replace-me-primary-model",
+      "base_url": "https://example.invalid/v1",
+      "api_key_env": "WORKPILOT_PRIMARY_MODEL_API_KEY",
+      "input_cost_per_million": 0,
+      "output_cost_per_million": 0,
+      "min_pass_rate": 0.95,
+      "min_category_pass_rate": 0.9,
+      "min_native_plan_rate": 0.8,
+      "max_p95_latency_ms": 30000,
+      "max_cost_per_success_usd": 0.1
+    },
+    {
+      "id": "economy",
+      "provider": "replace-me-provider",
+      "model": "replace-me-economy-model",
+      "base_url": "https://example.invalid/v1",
+      "api_key_env": "WORKPILOT_ECONOMY_MODEL_API_KEY",
+      "input_cost_per_million": 0,
+      "output_cost_per_million": 0,
+      "min_pass_rate": 0.9,
+      "min_category_pass_rate": 0.85,
+      "min_native_plan_rate": 0.75,
+      "max_p95_latency_ms": 30000,
+      "max_cost_per_success_usd": 0.05
+    }
+  ]
+}

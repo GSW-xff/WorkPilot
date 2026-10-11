@@ -13,8 +13,10 @@ WorkPilot 是一个面向企业跨系统办公流程的安全执行 Agent。它�
 - 结构化 Planner：JSON Schema 输出、一次修复、确定性校验与 DemoPlanner 安全回退；
 - ContextBuilder：分层来源、trust label、Prompt Injection 标记、Tool Search 和 Token 预算裁剪；
 - 模型请求记录 provider/model/request id、Prompt/Schema 版本、Token、延迟、重试、成本和 trace id，默认不持久化 Prompt 正文；
+- 双模型重复评测：固定数据集、确定性基线、质量门禁、成本/时延/方差及匿名人工盲审包；
 - 重规划 Plan Diff，并禁止删除或篡改已成功步骤；
-- GitHub Issues OAuth/HTTP Adapter：Secret 引用隔离、限流/熔断/超时、远端幂等查询、Webhook 签名与防重放；
+- GitHub Issues OAuth/HTTP Adapter：Token 归属检查/远程撤销、Secret 隔离、限流/熔断、远端幂等、Webhook 防重放；
+- GitHub 沙箱 E2E runner：可清理 Issue/评论、429/5xx 故障矩阵和提交后响应丢失恢复；
 - OpenTelemetry/OTLP Trace、Prometheus 指标、Tempo 与 Grafana 本地观测栈；
 - API Idempotency-Key、RFC Problem Details、任务分页/过滤和 SSE Last-Event-ID 断线续传；
 - Outbox Relay、失败计数/死信与消费端按 event id 去重；
@@ -94,6 +96,26 @@ uv run workpilot-eval --output evals/reports/local --enforce-safety
 `baseline-comparison.md`。`evals/reports/baseline-v1/` 保留修复前的失败分类，
 `evals/reports/intent-gated-v2/` 是当前支持域门基线：60 条任务、每条 3 次，共 180 次结果
 全部通过，未授权写入为 0。两者都只代表离线确定性 Planner，不代表真实模型或 SaaS 实测。
+
+真实模型对比需要先复制并填写 profile，价格必须使用运行时供应商的实际价格：
+
+```bash
+cp evals/model-profiles.template.json evals/model-profiles.local.json
+# 设置两个 profile 引用的 API Key 环境变量
+make eval-models
+```
+
+GitHub 沙箱验收默认会创建并关闭临时 Issue、删除评论、注入一次提交后响应丢失，并远程撤销
+OAuth token。运行前请使用专用仓库和一次性 token：
+
+```bash
+export WORKPILOT_GITHUB_SANDBOX_REPO='owner/disposable-repository'
+make github-sandbox
+```
+
+完整证据边界见 [真实模型对比评测](docs/model-comparison-evaluation.md)和
+[GitHub 沙箱 Runbook](docs/github-sandbox-runbook.md)。当前环境没有外部凭证，仓库不包含或
+伪造真实模型/GitHub 通过报告。
 
 ## API 演示
 

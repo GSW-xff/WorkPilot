@@ -8,3 +8,4 @@ workpilot.db
 *.db-journal
 .mypy_cache/
 .ruff_cache/
+evals/model-profiles.local.json
