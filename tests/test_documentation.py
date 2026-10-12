@@ -17,6 +17,8 @@ GITHUB_SANDBOX = ROOT / "docs" / "github-sandbox-runbook.md"
 PROJECT_OVERVIEW = ROOT / "docs" / "project-overview-and-agent-interview.md"
 NEWCOMER_GUIDE = ROOT / "docs" / "newcomer-agent-learning-guide.md"
 NEWCOMER_GUIDE_DOCX = ROOT / "docs" / "WorkPilot-新人学习与面试讲解手册.docx"
+AI_AGENT_SKILLS_GUIDE = ROOT / "docs" / "AI-Agent-专业技能系统讲解.md"
+AI_AGENT_SKILLS_DOCX = ROOT / "docs" / "AI-Agent-专业技能系统讲解.docx"
 
 
 class MvpPlanDocumentationTest(unittest.TestCase):
@@ -364,6 +366,78 @@ class NewcomerLearningGuideTest(unittest.TestCase):
     def test_readme_links_to_word_guide(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("docs/WorkPilot-新人学习与面试讲解手册.docx", readme)
+
+
+class AiAgentProfessionalSkillsGuideTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.content = AI_AGENT_SKILLS_GUIDE.read_text(encoding="utf-8")
+
+    def test_guide_covers_all_requested_skill_categories(self) -> None:
+        required = [
+            "## 2 编程与工程",
+            "## 3 Agent 开发",
+            "## 4 RAG 与知识检索",
+            "## 5 Agent 评测与稳定性",
+            "## 6 LLM 基础与优化",
+            "## 7 五类能力的完整系统链路",
+            "## 10 专业技能总结",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+    def test_guide_explains_every_resume_keyword(self) -> None:
+        required = [
+            "### 2.1 Python",
+            "### 2.2 FastAPI",
+            "### 2.3 异步任务",
+            "### 2.5 SQLAlchemy 与 Alembic",
+            "### 2.7 Redis",
+            "### 3.2 ReAct",
+            "### 3.3 Plan and Execute",
+            "### 3.4 LangChain 与 LangGraph",
+            "### 3.10 MCP 协议",
+            "### 3.11 Multi Agent 路由与 Handoff",
+            "### 4.5 BM25",
+            "### 4.7 Rerank 精排",
+            "### 4.10 Recall at K",
+            "### 4.11 MRR",
+            "### 4.12 NDCG",
+            "### 5.8 超时与重试",
+            "### 5.9 幂等",
+            "### 5.12 Prompt Injection 防护",
+            "### 6.1 Transformer",
+            "### 6.5 SFT",
+            "### 6.6 LoRA 与 QLoRA",
+            "### 6.7 LLM as a Judge",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+    def test_guide_corrects_names_and_calibrates_resume_claims(self) -> None:
+        self.assertIn("应分别写为 SQLAlchemy 和 Alembic", self.content)
+        self.assertIn("原简历中“熟练”“掌握”和“具备经验”偏强", self.content)
+        self.assertIn("数字必须替换为本人真实测量结果", self.content)
+
+    def test_word_guide_is_valid_and_contains_core_content(self) -> None:
+        self.assertTrue(AI_AGENT_SKILLS_DOCX.exists())
+        self.assertGreater(AI_AGENT_SKILLS_DOCX.stat().st_size, 45_000)
+        with zipfile.ZipFile(AI_AGENT_SKILLS_DOCX) as archive:
+            self.assertIn("word/document.xml", archive.namelist())
+            document_xml = archive.read("word/document.xml").decode("utf-8")
+            for item in (
+                "AI Agent 工程专业技能系统讲解",
+                "编程与工程如何串联",
+                "Agent 开发如何串联",
+                "RAG 如何串联",
+                "评测与稳定性如何串联",
+                "五类能力的完整系统链路",
+                "专业技能总结",
+            ):
+                with self.subTest(item=item):
+                    self.assertIn(item, document_xml)
 
 
 if __name__ == "__main__":
