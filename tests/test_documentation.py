@@ -19,6 +19,8 @@ NEWCOMER_GUIDE = ROOT / "docs" / "newcomer-agent-learning-guide.md"
 NEWCOMER_GUIDE_DOCX = ROOT / "docs" / "WorkPilot-新人学习与面试讲解手册.docx"
 AI_AGENT_SKILLS_GUIDE = ROOT / "docs" / "AI-Agent-专业技能系统讲解.md"
 AI_AGENT_SKILLS_DOCX = ROOT / "docs" / "AI-Agent-专业技能系统讲解.docx"
+PROJECT_SKILL_MAPPING = ROOT / "docs" / "WorkPilot-专业技能项目映射与源码解析.md"
+PROJECT_SKILL_MAPPING_DOCX = ROOT / "docs" / "WorkPilot-专业技能项目映射与源码解析.docx"
 
 
 class MvpPlanDocumentationTest(unittest.TestCase):
@@ -435,6 +437,76 @@ class AiAgentProfessionalSkillsGuideTest(unittest.TestCase):
                 "评测与稳定性如何串联",
                 "五类能力的完整系统链路",
                 "专业技能总结",
+            ):
+                with self.subTest(item=item):
+                    self.assertIn(item, document_xml)
+
+
+class WorkPilotProjectSkillMappingTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.content = PROJECT_SKILL_MAPPING.read_text(encoding="utf-8")
+
+    def test_mapping_covers_all_five_resume_categories_and_end_to_end_chain(self) -> None:
+        required = [
+            "## 2 编程与工程",
+            "## 3 Agent 开发",
+            "## 4 RAG 与知识检索",
+            "## 5 Agent 评测与稳定性",
+            "## 6 LLM 基础与优化",
+            "## 7 五类技能在 WorkPilot 中的完整链路",
+            "## 9 简历表述校准",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+    def test_mapping_distinguishes_direct_partial_and_unused_skills(self) -> None:
+        required = [
+            "36 项已直接使用，5 项部分关联，14 项未使用",
+            "### 2.9 Redis",
+            "### 3.3 LangGraph",
+            "### 3.11 Multi Agent 路由",
+            "### 4.4 BM25",
+            "### 4.7 Query Rewriting",
+            "### 4.8 HyDE",
+            "### 6.5 SFT",
+            "### 6.6 LoRA 与 QLoRA",
+            "### 6.7 LLM as a Judge",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+    def test_mapping_uses_accurate_project_boundaries(self) -> None:
+        required = [
+            "不能称为 BM25",
+            "不是标准 ReAct",
+            "依赖中没有 LangGraph",
+            "没有安装 LangChain",
+            "而不是“使用模型原生 Function Calling API”",
+            "离线 Hash 基线",
+            "不是 pgvector、Milvus 或 Elasticsearch 生产索引",
+            "不等同于完整红队或渗透测试",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+    def test_word_mapping_is_valid_and_contains_core_content(self) -> None:
+        self.assertTrue(PROJECT_SKILL_MAPPING_DOCX.exists())
+        self.assertGreater(PROJECT_SKILL_MAPPING_DOCX.stat().st_size, 50_000)
+        with zipfile.ZipFile(PROJECT_SKILL_MAPPING_DOCX) as archive:
+            self.assertIn("word/document.xml", archive.namelist())
+            document_xml = archive.read("word/document.xml").decode("utf-8")
+            for item in (
+                "WorkPilot 专业技能项目映射与源码解析",
+                "总体映射结论",
+                "Plan and Execute",
+                "向量与混合召回",
+                "Agent 评测与稳定性",
+                "简历表述校准",
+                "建议的补强顺序",
             ):
                 with self.subTest(item=item):
                     self.assertIn(item, document_xml)
