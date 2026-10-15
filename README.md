@@ -188,6 +188,8 @@ benchmarks/               可重复 API 延迟、吞吐与容量基线
 面向 AI Agent 初学者的概念讲解、技术栈教程、代码阅读路线和面试追问见
 [新人学习与面试讲解手册](docs/newcomer-agent-learning-guide.md)，可下载的 Word 版本见
 [WorkPilot 新人学习与面试讲解手册](docs/WorkPilot-新人学习与面试讲解手册.docx)；
+如果希望先用生活化类比理解系统分层、工具职责和完整任务链路，可下载
+[WorkPilot 小白版整体架构学习手册](docs/WorkPilot-小白版整体架构学习手册.docx)；
 面向腾讯、华为等互联网大厂 HR 面试的项目真实性、个人贡献、行为问题、岗位动机和压力追问见
 [WorkPilot HR 面试问题与回答手册](docs/WorkPilot-HR面试问题与回答手册.docx)；
 V3 C4/关键时序见 [架构图](docs/architecture-v3.md)，SLO 计算口径见
