@@ -72,3 +72,11 @@ def test_readme_links_to_repository_policies_and_publishing_guide() -> None:
 
     for link in ("CONTRIBUTING.md", "SECURITY.md", "docs/github-publishing.md", "LICENSE"):
         assert link in readme
+
+
+def test_readme_beginner_architecture_guide_is_available() -> None:
+    guide = "docs/WorkPilot-小白版整体架构学习手册.docx"
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert guide in readme
+    assert (ROOT / guide).is_file()
