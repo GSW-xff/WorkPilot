@@ -21,6 +21,8 @@ AI_AGENT_SKILLS_GUIDE = ROOT / "docs" / "AI-Agent-专业技能系统讲解.md"
 AI_AGENT_SKILLS_DOCX = ROOT / "docs" / "AI-Agent-专业技能系统讲解.docx"
 PROJECT_SKILL_MAPPING = ROOT / "docs" / "WorkPilot-专业技能项目映射与源码解析.md"
 PROJECT_SKILL_MAPPING_DOCX = ROOT / "docs" / "WorkPilot-专业技能项目映射与源码解析.docx"
+HR_INTERVIEW_GUIDE = ROOT / "docs" / "WorkPilot-HR面试问题与回答手册.md"
+HR_INTERVIEW_GUIDE_DOCX = ROOT / "docs" / "WorkPilot-HR面试问题与回答手册.docx"
 
 
 class MvpPlanDocumentationTest(unittest.TestCase):
@@ -510,6 +512,64 @@ class WorkPilotProjectSkillMappingTest(unittest.TestCase):
             ):
                 with self.subTest(item=item):
                     self.assertIn(item, document_xml)
+
+
+class WorkPilotHrInterviewGuideTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.content = HR_INTERVIEW_GUIDE.read_text(encoding="utf-8")
+
+    def test_guide_covers_hr_risk_answer_and_personalization_sections(self) -> None:
+        required = [
+            "## 2 HR 可能重点判断的内容",
+            "## 5 项目介绍的三个版本",
+            "## 7 项目真实性与个人贡献问题",
+            "## 8 结果指标与证据边界问题",
+            "## 10 协作与行为问题",
+            "## 11 岗位动机与公司匹配问题",
+            "## 13 压力追问与应对",
+            "## 15 面试前个人化工作表",
+            "## 16 面试前检查清单",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+    def test_guide_preserves_project_evidence_boundaries(self) -> None:
+        required = [
+            "142 项通过、5 项跳过",
+            "85.88%",
+            "离线确定性 Planner",
+            "不代表通用 exactly once 保证",
+            "真实云模型对比结果",
+            "项目已有能力与个人贡献",
+            "AI 编程工具",
+            "机器学习实验诊断平台",
+        ]
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, self.content)
+
+    def test_word_guide_is_valid_and_contains_core_content(self) -> None:
+        self.assertTrue(HR_INTERVIEW_GUIDE_DOCX.exists())
+        self.assertGreater(HR_INTERVIEW_GUIDE_DOCX.stat().st_size, 45_000)
+        with zipfile.ZipFile(HR_INTERVIEW_GUIDE_DOCX) as archive:
+            self.assertIn("word/document.xml", archive.namelist())
+            document_xml = archive.read("word/document.xml").decode("utf-8")
+            self.assertIn("w:cantSplit", document_xml)
+            for item in (
+                "WorkPilot HR 面试问题与回答手册",
+                "项目介绍的三个版本",
+                "项目真实性与个人贡献问题",
+                "压力追问与应对",
+                "面试前个人化工作表",
+            ):
+                with self.subTest(item=item):
+                    self.assertIn(item, document_xml)
+
+    def test_readme_links_to_word_guide(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("docs/WorkPilot-HR面试问题与回答手册.docx", readme)
 
 
 if __name__ == "__main__":
