@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>WorkPilot 面试追问小抄</title>
+<style>
+  @page { size: A4; margin: 8mm; }
+  html, body { margin: 0; padding: 0; background: #fafafa; }
+  body { font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, -apple-system, sans-serif; padding: 8mm; color: #1a1a1a; }
+  h1 { font-size: 14pt; margin: 0 0 4mm; font-weight: 600; }
+  .hint { font-size: 9pt; color: #666; margin: 0 0 6mm; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4mm; min-height: calc(297mm - 32mm); }
+  .card { background: #fff; border: 1px solid #c8c8c8; border-radius: 6px; padding: 5mm 5mm 4mm; display: flex; flex-direction: column; gap: 2.5mm; page-break-inside: avoid; }
+  .num { font-size: 8pt; color: #999; letter-spacing: 0.1em; font-weight: 600; }
+  h2 { font-size: 11.5pt; margin: 0; font-weight: 600; line-height: 1.3; }
+  .mech { font-size: 9pt; line-height: 1.5; color: #333; }
+  .label { font-size: 8pt; color: #666; font-weight: 600; letter-spacing: 0.05em; margin-top: 1mm; }
+  .qa { font-size: 8.5pt; line-height: 1.5; color: #222; }
+  .qa b { color: #534AB7; font-weight: 600; }
+  .trap { font-size: 8pt; color: #72243E; background: #FBEAF0; padding: 2px 5px; border-radius: 3px; line-height: 1.5; margin-top: auto; }
+  .data { font-size: 9pt; color: #0F6E56; font-weight: 600; }
+  .term { background: #EEEDFE; color: #3C3489; padding: 1px 4px; border-radius: 3px; font-family: "SF Mono", Consolas, monospace; font-size: 8.5pt; }
+  hr { border: 0; border-top: 0.5px dashed #bbb; margin: 1mm 0; }
+  @media print { body { background: #fff; } .card { box-shadow: none; } }
+</style>
+</head>
+<body>
+<h1>WorkPilot 面试追问小抄</h1>
+<p class="hint">A4 排 3 × 2 共 6 张卡；打印后沿边框剪开，正面带去面试。每张卡：机制 → 常见追问 → 应答 → 陷阱。</p>
+
+<div class="grid">
+
+  <div class="card">
+    <div class="num">亮点 01</div>
+    <h2>支持域门是一等状态</h2>
+    <div class="mech">模型调用前用 <span class="term">IntentGate</span> 判定三类：<span class="term">EXECUTABLE / NEEDS_CLARIFICATION / REJECTED</span>，越权与无界请求在调模型之前就挡掉。</div>
+    <div class="label">追问</div>
+    <div class="qa">为什么不直接让模型判？<br><b>答：</b>分类结果要进 <span class="term">TaskStatus</span> 一等状态，下游校验、澄清、拒绝是三条不同处理路径；模型不可被注入篡改的稳定性需求。</div>
+    <div class="trap">× 别只说"为了安全"——说出"状态机一等状态"才是真细节。</div>
+  </div>
+
+  <div class="card">
+    <div class="num">亮点 02</div>
+    <h2>参数哈希审批</h2>
+    <div class="mech">预览时算一次 <span class="term">parameter_hash</span>，执行前再算，不一致则 <span class="term">APPROVAL.EXPIRED</span>。</div>
+    <div class="label">追问</div>
+    <div class="qa">为什么不直接禁止修改参数？<br><b>答：</b>审批后参数经常需要细化（cc、加附件、改收件人）。关键是防 <b>TOCTOU</b>，不是禁止修改。</div>
+    <div class="trap">× 这是 <b>TOCTOU</b>，不是权限校验。说出 TOCTOU 才显得内行。</div>
+  </div>
+
+  <div class="card">
+    <div class="num">亮点 03</div>
+    <h2>lookup-before-retry</h2>
+    <div class="mech">连接器超时/响应丢失时账本标 <span class="term">UNKNOWN</span>，重试前必须 <span class="term">adapter.lookup()</span> 查远端，不盲目重试。</div>
+    <div class="label">追问 / 数据</div>
+    <div class="qa"><b>追问：</b>查远端也查不到怎么办？<br><b>答：</b>保持 <span class="term">UNKNOWN</span>，进入 <span class="term">recovery_cases</span> 队列等人工对账。<br><span class="data">同动作 100 次投递，远端只产生 1 个对象</span>（离线确定性）。</div>
+    <div class="trap">× 别说"避免了所有重复"——只针对"响应丢失"场景。</div>
+  </div>
+
+  <div class="card">
+    <div class="num">亮点 04</div>
+    <h2>规划永不静默失败</h2>
+    <div class="mech">模型输出 JSON Schema 校验 + 一次 repair；仍不合法回退 <span class="term">DemoPlanner</span>，恒定给出可审计的最小计划。</div>
+    <div class="label">追问</div>
+    <div class="qa">模型持续乱输出怎么办？<br><b>答：</b>确定性的 <span class="term">DemoPlanner</span> 内置周报、会议跟进、Issue 汇总三个模板；模型挂 ≠ 任务挂。</div>
+    <div class="trap">× 别说"提高稳定性"——说"规划路径总有合法输出，回退是设计而非兜底"。</div>
+  </div>
+
+  <div class="card">
+    <div class="num">亮点 05</div>
+    <h2>重规划隔离已完成副作用</h2>
+    <div class="mech"><span class="term">diff_plans()</span> 显式 raise，禁止删除或修改已 <span class="term">SUCCEEDED</span> 步骤，避免重复触发远端写入。</div>
+    <div class="label">追问</div>
+    <div class="qa">如果就是想撤回一个已发邮件？<br><b>答：</b>那是显式 <span class="term">cancel</span> + 回滚流程，不在 <span class="term">replan</span> 范围。重规划只调整后续路径。</div>
+    <div class="trap">× 别扯"revert"——仓库只有 cancel / pause / resume，没有通用 undo。</div>
+  </div>
+
+  <div class="card">
+    <div class="num">亮点 06</div>
+    <h2>60 条任务集进 CI</h2>
+    <div class="mech">版本化数据集 + <span class="term">workpilot-eval --enforce-safety</span> 进入 GitHub Actions，安全零容忍门禁把 Agent 行为从"调通就行"变成可回归的工程指标。</div>
+    <div class="label">追问 / 数据</div>
+    <div class="qa"><b>追问：</b>怎么测真实模型？<br><b>答：</b>搭了 <span class="term">workpilot-model-eval</span> 双模型工具链，本地无外部凭证没跑。<br><span class="data">180 次离线确定性回归，未授权写入 0.3333 → 0</span></div>
+    <div class="trap">× 数字必须带"离线确定性"前缀，否则会被追问真实模型数据。</div>
+  </div>
+
+</div>
+</body>
+</html>
