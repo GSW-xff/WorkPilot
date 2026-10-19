@@ -84,6 +84,7 @@
   <ol>
     <li><a href="#s1">先记住一句话：模型只出计划，确定性代码掌管一切后果</a></li>
     <li><a href="#s2">四层架构与模块地图</a></li>
+    <li><a href="#s2b">逐层拆解：每层有哪些模块、用到哪些方法</a></li>
     <li><a href="#s3">钥匙数据结构：TaskRun 解剖</a></li>
     <li><a href="#s4">一次完整流程：7 个阶段的方法调用链</a></li>
     <li><a href="#s5">两套状态机：任务状态 + 账本状态</a></li>
@@ -122,6 +123,80 @@
   <tr><td><code>workflows/temporal.py</code></td><td>Workflow 循环、Update 接审批、Signal 控暂停/恢复/取消、Query 查状态</td><td>"流程状态在 Temporal，业务状态在数据库，职责分开"</td></tr>
   <tr><td><code>repository.py</code> / <code>db/</code></td><td>乐观锁（version）、PostgreSQL RLS（app.tenant_id）</td><td>"并发冲突靠版本号，越权访问靠数据库层兜底"</td></tr>
 </table>
+
+<h2 id="s2b">2.5 逐层拆解：每层有哪些模块、用到哪些方法</h2>
+<p>四层是<b>纵向职责切分</b>（谁负责什么），模型前/后是<b>横向切面</b>（模型能碰到什么），两者正交。下面按层把模块和入口方法摊开。</p>
+
+<h3>① 接入层 — 谁在请求、有没有资格、请求什么</h3>
+<table>
+  <tr><th style="width:170px">方法 / 入口</th><th>做什么</th></tr>
+  <tr><td><code>api.py:105 tenant_context</code></td><td>解析租户与用户。有 OIDC 就验 JWT，无配置则用 header 构造 <code>Principal</code>（<code>api.py:113</code>）。<b>租户从这里进入全链路，后面所有层都带 tenant_id</b></td></tr>
+  <tr><td><code>api.py:130 build_service</code><br><code>api.py:148 _build_planner</code><br><code>api.py:192 build_repository</code></td><td>依赖装配：按 <code>planner_mode</code>（demo / fake / openai）选 Planner 与 Gateway，按有无 <code>database_url</code> 选内存仓储或 SQLAlchemy 仓储</td></tr>
+  <tr><td><code>api.py:199 create_app</code></td><td>装配 FastAPI：<code>lifespan</code>(235)、<code>trace_requests</code> 中间件(281)、异常处理器(324/328)、路由挂载</td></tr>
+  <tr><td><code>api.py:375 create_task</code><br><code>api.py:572 run_task</code><br><code>api.py:584 replan_task</code></td><td>任务生命周期入口：创建、执行、重排</td></tr>
+  <tr><td><code>api.py:597 approve_task</code><br><code>api.py:625 reject_task</code><br><code>api.py:663/675/687</code></td><td>审批与中断：批准 / 拒绝 / 暂停 / 恢复 / 取消。<code>_require_role</code>(968) 做角色校验</td></tr>
+  <tr><td><code>api.py:707 task_replay</code><br><code>api.py:716 export_task_audit</code><br><code>api.py:738 task_events</code></td><td>审计三件套：重放、导出审计包、SSE 事件流(<code>stream</code> 746)</td></tr>
+  <tr><td><code>api.py:974/981/988</code></td><td>错误规范化：<code>_translate_value_error</code> → 400、<code>_call_or_conflict</code> → 409、<code>_problem</code> 输出 RFC7807</td></tr>
+  <tr><td><code>auth.py:51 OIDCVerifier.verify</code></td><td>JWT 校验，<code>_refresh_keys</code>(101) 拉 JWKS，<code>Principal.has_role</code>(22) 判角色</td></tr>
+  <tr><td><code>telemetry.py:131 span</code><br><code>telemetry.py:67 counter / 73 observe</code><br><code>telemetry.py:86 render_prometheus</code></td><td>可观测（横切）：埋点、指标、Prometheus 暴露；<code>_safe_attributes</code>(202) + <code>SAFE_ATTRIBUTE_PREFIXES</code>(16) 做属性白名单，防敏感字段进 span</td></tr>
+</table>
+<div class="note"><b>这一层防住</b>：未认证访问、跨租户取数、角色越权、错误格式不统一、指标里泄漏敏感属性。</div>
+
+<h3>② 规划层 — 模型只在 <code>planner.py:357</code> 出现一次</h3>
+<table>
+  <tr><th style="width:170px">方法 / 入口</th><th>做什么</th></tr>
+  <tr><td><code>planner.py:131 IntentGate.enforce</code></td><td>支持域门（<b>模型之前</b>）。<code>evaluate</code>(110) 对目标分类：命中 → 放行；模糊 → 抛 <code>PlanningClarificationRequired</code>(53)；越界 → 抛 <code>PlanningRequestRejected</code>(58)。<b>不调模型就能拒绝一大半请求</b></td></tr>
+  <tr><td><code>planner.py:336 StructuredPlanner.plan</code></td><td>规划主流程：<code>intent_gate.enforce</code>(344) → <code>select_candidate_tools</code>(345) → <code>context_builder.build</code>(346) → <code>generate_structured</code>(357，<b>全项目唯一一次模型调用</b>) → <code>TaskPlan.model_validate</code>(366) → <code>validate_plan</code>(367)。失败修复 1 次（384–395 注入 repair 消息），仍失败则 <code>DemoPlanner</code> 回退(400)</td></tr>
+  <tr><td><code>planner.py:147 DemoPlanner.plan</code></td><td>确定性回退：<code>_weekly_report_plan</code>(156)、<code>_meeting_followup_plan</code>(228)、<code>_issue_summary_plan</code>(265)</td></tr>
+  <tr><td><code>planner.py:418 diff_plans</code></td><td>重排对比，传入 <code>completed_steps</code> 保护已完成的步骤不被重做</td></tr>
+  <tr><td><code>context.py:62 ContextBuilder.build</code></td><td>上下文分层 + 预算裁剪。优先级：system_invariants 100 → user_goal 95 → organization_policy 90 → tools 85；按 <code>estimate_tokens</code> 逐个扣预算，超了就进 <code>omitted_sources</code></td></tr>
+  <tr><td><code>context.py:49 detect_prompt_injection</code></td><td>只<b>标记</b>不解释：<code>INJECTION_PATTERNS</code>(40) 命中即记录 <code>pattern-N</code>；untrusted 内容一律包进 <code>&lt;external_data&gt;</code> 标签(116–119)</td></tr>
+  <tr><td><code>context.py:145 select_candidate_tools</code></td><td>按目标词给工具打分，取前 8 个候选，避免把全部工具塞进上下文</td></tr>
+  <tr><td><code>model_gateway.py:116 / 171 generate_structured</code></td><td>两种实现同协议：<code>DeterministicModelGateway</code>(104) 离线确定性；<code>OpenAICompatibleModelGateway</code>(157) 真实云模型（json_schema strict）。预算由 <code>RunBudget</code>(36) + <code>BudgetExceededError</code>(74) 硬闸，成本走 <code>_estimated_cost</code>(275)</td></tr>
+  <tr><td><code>dag.py:49 validate_plan</code></td><td>计划合法性（<b>模型之后</b>）：步数上限、能力白名单、风险不可比固定值低(72)、R3 禁止(75)、R2 必须审批(77)、R1/R2 必须定义 verification(79)</td></tr>
+  <tr><td><code>dag.py:16 topological_order</code></td><td>Kahn 拓扑排序：step id 重复、依赖缺失、有环，全部在这一个函数里拦掉</td></tr>
+</table>
+<div class="note"><b>这一层防住</b>：越界意图、提示注入、上下文超预算/超成本、模型输出非法 DAG、模型不可用（回退而非带病执行）。</div>
+
+<h3>③ 执行层 — 全确定性代码，模型碰不到副作用</h3>
+<table>
+  <tr><th style="width:170px">方法 / 入口</th><th>做什么</th></tr>
+  <tr><td><code>runtime.py:84 create_task_async</code><br><code>runtime.py:105 _structured_plan</code><br><code>runtime.py:121 _attach_planning_evidence</code></td><td>异步建任务：拿到 <code>PlanningOutcome</code> 后校验收件人域名(118)，把上下文快照落成 artifact（<b>只存 sha256 和长度，不存原文</b>，126–134），再 <code>_store_plan</code>(311)</td></tr>
+  <tr><td><code>runtime.py:324 _run</code></td><td><b>主循环，系统最核心的 220 行</b>。按拓扑序逐步推进：<code>policy.evaluate</code>(352) → 审批闸门(374) → <code>idempotency_key</code>(394) → 账本预占 <code>RESERVED</code>(400–418) → <code>adapter.lookup</code>(424) → <code>adapter.execute</code>(440) → 账本 <code>DISPATCHED</code>(496) → 存 Artifact(501) → <code>adapter.verify</code>(514) → <code>CONFIRMED</code>(536)</td></tr>
+  <tr><td><code>runtime.py:442–494</code> 异常分支</td><td><code>ConnectorError</code>：<code>outcome_unknown</code> 为真 → 账本 <code>UNKNOWN</code> + <code>reconciliation_status=REQUIRED</code>(454–456)，退避 <code>min(2**attempt, 60)</code> 秒(450)；其他异常同样标 UNKNOWN(474–485)。<b>UNKNOWN 绝不当 FAILED 直接重试</b></td></tr>
+  <tr><td><code>runtime.py:549 approve / 576 reject</code></td><td>审批必须带参数哈希，<code>approval.parameter_hash != supplied_hash</code> 直接拒绝(562)。参数改一个字就要重批</td></tr>
+  <tr><td><code>runtime.py:666 _transition</code><br><code>runtime.py:680 _event</code><br><code>runtime.py:699 _checkpoint</code></td><td>状态迁移、时间线事件、检查点三件套。迁移走 <code>state_machine.ensure_transition</code></td></tr>
+  <tr><td><code>policy.py:19 PolicyEngine.evaluate</code></td><td>42 行但最关键：<code>effective = max_risk(step.risk, fixed_risk)</code>(25) —— <b>风险只能升不能降</b>；R3 直接拒绝(26)；R2 或显式标记 → 需审批(34)</td></tr>
+  <tr><td><code>connectors/base.py:24 ToolAdapter</code></td><td>工具协议五件套：<code>capabilities</code> / <code>preview</code> / <code>execute</code> / <code>lookup</code> / <code>verify</code>。<b>把幂等和核验做成接口契约</b>，新工具必须实现</td></tr>
+  <tr><td><code>connectors/base.py:69 CapabilityRegistry</code></td><td><code>names</code>(81)、<code>risks</code>(85，能力固定风险)、<code>planning_tools</code>(88)、<code>adapter_for</code>(99)、<code>channel_for</code>(105)</td></tr>
+  <tr><td><code>connectors/base.py:36 ConnectorError</code></td><td>错误分类：<code>DeadlineExceeded</code>(49)、<code>RateLimited</code>(54)、<code>Rejected</code>(59)；<code>ensure_before_deadline</code>(64) 卡截止时间</td></tr>
+  <tr><td><code>security.py:21 parameter_hash</code><br><code>security.py:25 idempotency_key</code><br><code>security.py:36 redact</code></td><td>幂等与脱敏：规范 JSON → sha256；幂等键 = hash(租户, 任务, 步骤, 能力, 规范参数)；<code>redact</code> 按 key 名 + 正则（Bearer / sk- / gh*_ / xox*）清洗后入库</td></tr>
+  <tr><td><code>connectors/github.py:89 exchange</code><br><code>connectors/github.py:227 _validate_state</code><br><code>connectors/github.py:468 verify</code></td><td>真实连接器：OAuth 换票、state 校验防 CSRF、webhook HMAC 验签</td></tr>
+  <tr><td><code>credentials.py:12 SecretStore</code></td><td>凭证只存引用不存明文：<code>put</code>(27) 返回 reference，需要时 <code>get</code>(33) 取回</td></tr>
+</table>
+<div class="note"><b>这一层防住</b>：越权执行、风险被模型下调、重复副作用、UNKNOWN 状态下盲目重试、状态非法跳转、密钥与敏感字段落库。</div>
+
+<h3>④ 编排与持久层 — 长任务不丢、可中断可恢复</h3>
+<table>
+  <tr><th style="width:170px">方法 / 入口</th><th>做什么</th></tr>
+  <tr><td><code>workflows/temporal.py:47 TaskWorkflow.run</code></td><td>Workflow 主循环：<code>while status not in TERMINAL</code>(51)。遇 <code>WAITING_APPROVAL</code>/<code>PAUSED</code> 就 <code>wait_condition</code>(77)；审批超时 7 天(13/78)自动 <code>cancel_task</code>；否则跑 <code>advance_task</code> activity(67)，带心跳与重试策略</td></tr>
+  <tr><td><code>workflows/temporal.py:82 decide_approval</code><br><code>103 pause / 116 resume / 129 cancel</code></td><td>Update handler 接审批结果，Signal 控暂停/恢复/取消。<code>WORKFLOW_PATCH_ID</code>(14) 是工作流版本迁移标记</td></tr>
+  <tr><td><code>workflows/activities.py:14 advance_task</code></td><td>Activity 只做薄壳：调 <code>service.run()</code>，<code>_heartbeat</code>(57) 上报进度。<b>业务逻辑不写在 Workflow 里，重放才安全</b></td></tr>
+  <tr><td><code>workflows/client.py:15 connect</code><br><code>22 start / 36 approve / 42 signal</code></td><td>Workflow 客户端：<code>workflow_id = f(tenant, task)</code>(19) 保证同一任务只有一个工作流实例</td></tr>
+  <tr><td><code>repository.py:51 InMemoryTaskRepository.save</code></td><td>乐观锁：<code>expected_version</code> 不匹配抛 <code>ConcurrentUpdateError</code>(13)</td></tr>
+  <tr><td><code>db/repository.py:92 save</code><br><code>db/repository.py:196 _set_tenant</code></td><td>SQLAlchemy 实现：版本号并发控制；<code>_set_tenant</code> 设 <code>app.tenant_id</code> 会话变量，配合数据库行级租户策略</td></tr>
+  <tr><td><code>db/repository.py:339 _append_outbox</code><br><code>db/repository.py:157 pending_outbox</code><br><code>db/repository.py:180 mark_outbox_published</code></td><td>事务内写 Outbox，保证"状态变更"与"事件待发"原子</td></tr>
+  <tr><td><code>db/models.py</code> 9 张表</td><td><code>TaskRunRecord</code>(23)、<code>TaskStepRecord</code>(67)、<code>ApprovalRecord</code>(85)、<code>ActionLedgerRecord</code>(108)、<code>VerificationRecord</code>(135)、<code>ArtifactRecord</code>(147)、<code>TimelineEventRecord</code>(163)、<code>CheckpointRecord</code>(180)、<code>OutboxEventRecord</code>(196)</td></tr>
+  <tr><td><code>outbox.py:31 publish_batch</code><br><code>outbox.py:68 consume</code></td><td>事件可靠投递：批量发布 + <code>DeduplicatingConsumer</code> 消费端去重（至少一次投递 + 幂等消费）</td></tr>
+  <tr><td><code>worker.py:15 run_worker</code></td><td>注册 Workflow 与 Activity，拉起 Worker 进程</td></tr>
+</table>
+<div class="note"><b>这一层防住</b>：进程崩溃丢任务、并发写互相覆盖、事件丢失或重复投递、租户数据串读。</div>
+
+<h3>旁路模块（不属于四层主干，但要知道它们是什么）</h3>
+<div class="card">
+<b>知识与工具集成</b>：<code>knowledge.py</code>（检索，命中结果作为 <code>ContextItem</code> 注入上下文）、<code>memory.py</code>（记忆，TTL 上限 365 天、<code>purge_expired</code> 定期清理）、<code>browser.py</code>、<code>github_sandbox.py</code>（679 行，沙箱内执行）、<code>mcp.py</code>（MCP 工具接入）。<br>
+<b>评测体系</b>：<code>evaluation.py</code>、<code>model_evaluation.py</code>（591 行）、<code>security_evaluation.py</code>、<code>retrieval_evaluation.py</code> —— 180 次回归的结论来自离线确定性 Planner，见第 8 节边界口径。
+</div>
 
 <h2 id="s3">3. 钥匙数据结构：TaskRun 解剖</h2>
 <p>理解这一个模型就理解了半个系统（<span class="path">models.py:188</span>）。<code>TaskRun</code> 是一个聚合根，一次任务的全过程证据都在里面：</p>
