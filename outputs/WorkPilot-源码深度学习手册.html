@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WorkPilot 源码深度学习手册</title>
+<style>
+  :root {
+    --bg: #ffffff; --surface: #f7f7f5; --line: #e3e1dc;
+    --ink: #22221f; --ink-2: #55554f; --ink-3: #8a8a83;
+    --accent: #185fa5; --accent-bg: #e6f1fb;
+    --warn: #854f0b; --warn-bg: #faeeda;
+    --ok: #3b6d11; --ok-bg: #eaf3de;
+    --danger: #a32d2d; --danger-bg: #fcebeb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 16px 80px;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--ink); background: var(--bg); line-height: 1.75; font-size: 15px;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; }
+  header { padding: 48px 0 24px; border-bottom: 2px solid var(--ink); margin-bottom: 32px; }
+  h1 { font-size: 28px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .sub { color: var(--ink-3); font-size: 14px; }
+  h2 { font-size: 21px; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 17px; margin: 28px 0 10px; }
+  h4 { font-size: 15px; margin: 20px 0 8px; color: var(--ink-2); }
+  p { margin: 10px 0; }
+  code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px;
+         background: var(--surface); padding: 1px 5px; border-radius: 4px; }
+  .path { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--surface); font-weight: 600; font-size: 13px; color: var(--ink-2); }
+  td code { font-size: 12.5px; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin: 14px 0; background: var(--bg); }
+  .card.accent { background: var(--accent-bg); border-color: #b5d4f4; }
+  .card.warn { background: var(--warn-bg); border-color: #fac775; }
+  .card.ok { background: var(--ok-bg); border-color: #c0dd97; }
+  .card.danger { background: var(--danger-bg); border-color: #f7c1c1; }
+  .stage { display: flex; gap: 12px; align-items: flex-start; }
+  .num { flex: 0 0 30px; height: 30px; border-radius: 50%; background: var(--ink); color: #fff;
+         display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; margin-top: 2px; }
+  .stage-body { flex: 1; }
+  .kv { font-size: 13.5px; color: var(--ink-2); margin: 4px 0; }
+  .kv b { color: var(--ink); font-weight: 600; }
+  ul, ol { padding-left: 22px; margin: 10px 0; }
+  li { margin: 5px 0; }
+  .tag { display: inline-block; font-size: 12px; padding: 1px 7px; border-radius: 4px;
+         background: var(--surface); color: var(--ink-2); border: 1px solid var(--line); margin-right: 4px; }
+  .tag.a { background: var(--accent-bg); color: var(--accent); border-color: #b5d4f4; }
+  .tag.w { background: var(--warn-bg); color: var(--warn); border-color: #fac775; }
+  .tag.g { background: var(--ok-bg); color: var(--ok); border-color: #c0dd97; }
+  .tag.r { background: var(--danger-bg); color: var(--danger); border-color: #f7c1c1; }
+  .chain { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px;
+           background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+           padding: 12px 14px; margin: 10px 0; white-space: pre-wrap; line-height: 1.9; color: var(--ink-2); }
+  .chain .fn { color: var(--accent); }
+  .chain .cm { color: var(--ink-3); }
+  .layer { display: grid; grid-template-columns: 130px 1fr; gap: 10px; align-items: stretch; margin: 6px 0; }
+  .layer .name { background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+                 padding: 10px; font-size: 13.5px; font-weight: 600; text-align: center; display: flex;
+                 align-items: center; justify-content: center; }
+  .layer .desc { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; font-size: 13.5px; }
+  .note { font-size: 13px; color: var(--ink-3); margin-top: 6px; }
+  .toc { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; font-size: 14px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px dashed var(--line); margin: 32px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>WorkPilot 源码深度学习手册</h1>
+  <div class="sub">按源码逐行梳理：四层框架 · 一次完整流程的方法调用链 · 每项设计防住什么</div>
+  <div class="sub" style="margin-top:6px">所有行号对应当前工作区代码（<code>workpilot/</code>）。建议边看手册边打开对应文件。</div>
+</header>
+
+<div class="toc">
+  <b>目录</b>
+  <ol>
+    <li><a href="#s1">先记住一句话：模型只出计划，确定性代码掌管一切后果</a></li>
+    <li><a href="#s2">四层架构与模块地图</a></li>
+    <li><a href="#s3">钥匙数据结构：TaskRun 解剖</a></li>
+    <li><a href="#s4">一次完整流程：7 个阶段的方法调用链</a></li>
+    <li><a href="#s5">两套状态机：任务状态 + 账本状态</a></li>
+    <li><a href="#s6">防御矩阵：设计 → 防住什么 → 不做会怎样</a></li>
+    <li><a href="#s7">代码阅读路线与自测题</a></li>
+    <li><a href="#s8">边界口径：哪些是真的，哪些还没做</a></li>
+  </ol>
+</div>
+
+<h2 id="s1">1. 先记住一句话</h2>
+<div class="card accent">
+  <b>模型只出计划，确定性代码掌管一切后果。</b><br>
+  模型唯一职责是把自然语言变成符合 JSON Schema 的 <code>TaskPlan</code>；之后是否被允许、要不要人批准、要不要真的调用外部系统、调失败怎么办、结果可信吗，全部由不依赖模型的确定性代码决定。模型挂了、被注入、输出非法，系统就回退到确定性 <code>DemoPlanner</code>，而不是"带病执行"。
+</div>
+<p>这条原则贯穿所有模块。后面看每一处设计时，都可以问一句：<b>这件事如果交给模型判断，最坏会怎样？</b>答案几乎都是"把防线前移到模型之前或之后"。两套防线位置：</p>
+<ul>
+  <li><b>模型之前</b>：<code>IntentGate</code>（支持域门）、<code>ContextBuilder</code>（上下文预算与注入标记）、<code>RunBudget</code>（Token/成本硬闸）</li>
+  <li><b>模型之后</b>：<code>validate_plan</code>（DAG/能力/风险/步数）、<code>PolicyEngine</code>（R0–R3 裁决）、审批、<code>Action Ledger</code>（幂等）、<code>verify</code>（独立远端核验）</li>
+</ul>
+
+<h2 id="s2">2. 四层架构与模块地图</h2>
+<div class="layer"><div class="name">① 接入层<br>API / 鉴权</div><div class="desc"><span class="path">workpilot/api.py</span>（1002 行，40+ 路由）、<span class="path">auth.py</span>、<span class="path">credentials.py</span>、<span class="path">mcp.py</span><br>HTTP/SSE、OIDC 与 RBAC、租户上下文、Outbox、MCP 端点、控制台接口。</div></div>
+<div class="layer"><div class="name">② 规划层<br>Planner</div><div class="desc"><span class="path">planner.py</span>（支持域门 + 结构化规划 + 修复 + 回退）、<span class="path">context.py</span>（上下文构建）、<span class="path">model_gateway.py</span>（可替换 Provider）、<span class="path">dag.py</span>（计划校验）<br>把自然语言变成可验证的 <code>TaskPlan</code>。</div></div>
+<div class="layer"><div class="name">③ 执行层<br>Runtime</div><div class="desc"><span class="path">runtime.py</span>（780 行，主循环 <code>_run</code>）、<span class="path">policy.py</span>（风险裁决）、<span class="path">security.py</span>（哈希与脱敏）、<span class="path">connectors/</span>（工具适配）、<span class="path">state_machine.py</span><br>拓扑调度、策略、审批、幂等账本、独立核验、检查点。</div></div>
+<div class="layer"><div class="name">④ 编排与<br>持久层</div><div class="desc"><span class="path">workflows/</span>（Temporal Workflow/Activity/Client）、<span class="path">repository.py</span>（内存 + 乐观锁）、<span class="path">db/</span>（SQLAlchemy + RLS）、<span class="path">outbox.py</span>、<span class="path">telemetry.py</span><br>长任务控制流、崩溃恢复、租户隔离、事件可靠投递、可观测。</div></div>
+
+<h3>模块速查表</h3>
+<table>
+  <tr><th style="width:180px">文件</th><th>职责</th><th style="width:240px">面试时该说的一句话</th></tr>
+  <tr><td><code>runtime.py</code></td><td>Planner–Executor–Verifier 主循环、审批、暂停/恢复/取消、检查点</td><td>"所有副作用都从 <code>_run</code> 这一个出口出去"</td></tr>
+  <tr><td><code>planner.py</code></td><td>IntentGate、StructuredPlanner（2 次机会 + 回退）、DemoPlanner、Plan Diff</td><td>"模型前先过支持域门，模型后再过确定性校验"</td></tr>
+  <tr><td><code>dag.py</code></td><td>拓扑排序、无环校验、能力/风险/步数校验</td><td>"图的结构合法性不由模型说了算"</td></tr>
+  <tr><td><code>policy.py</code></td><td>R0–R3 裁决，R3 拒绝、R2 必须审批</td><td>"风险等级取模型标注与能力固定值的 max，只能升不能降"</td></tr>
+  <tr><td><code>connectors/base.py</code></td><td><code>ToolAdapter</code> 协议：preview / execute / lookup / verify</td><td>"把幂等和核验做成接口契约，适配器必须实现"</td></tr>
+  <tr><td><code>security.py</code></td><td>规范 JSON、参数哈希、幂等键、脱敏</td><td>"幂等键 = hash(租户,任务,步骤,能力,规范参数)"</td></tr>
+  <tr><td><code>workflows/temporal.py</code></td><td>Workflow 循环、Update 接审批、Signal 控暂停/恢复/取消、Query 查状态</td><td>"流程状态在 Temporal，业务状态在数据库，职责分开"</td></tr>
+  <tr><td><code>repository.py</code> / <code>db/</code></td><td>乐观锁（version）、PostgreSQL RLS（app.tenant_id）</td><td>"并发冲突靠版本号，越权访问靠数据库层兜底"</td></tr>
+</table>
+
+<h2 id="s3">3. 钥匙数据结构：TaskRun 解剖</h2>
+<p>理解这一个模型就理解了半个系统（<span class="path">models.py:188</span>）。<code>TaskRun</code> 是一个聚合根，一次任务的全过程证据都在里面：</p>
+<table>
+  <tr><th style="width:150px">字段</th><th>作用</th><th style="width:230px">回答什么问题</th></tr>
+  <tr><td><code>status</code></td><td>任务状态机当前位置</td><td>现在能做什么、不能做什么</td></tr>
+  <tr><td><code>planning_disposition</code></td><td>EXECUTABLE / NEEDS_CLARIFICATION / REJECTED</td><td>这个请求到底该不该做</td></tr>
+  <tr><td><code>plan</code></td><td><code>TaskPlan</code>：步骤、依赖、风险、验证规则</td><td>打算怎么做（含版本号，用于重规划）</td></tr>
+  <tr><td><code>steps</code></td><td>每个步骤的运行态 <code>StepRun</code></td><td>哪一步做到哪了</td></tr>
+  <tr><td><code>approvals</code></td><td>审批记录 + <code>parameter_hash</code> + <code>plan_version</code></td><td>谁批准了"哪个参数版本"的哪一步</td></tr>
+  <tr><td><code>ledger</code></td><td><b>幂等账本</b>：<code>ActionLedgerEntry</code> 列表</td><td>这个动作做过没有、结果未知还是已确认</td></tr>
+  <tr><td><code>verifications</code></td><td>每步独立核验结果与证据引用</td><td>"成功"是工具自述的还是查出来的</td></tr>
+  <tr><td><code>artifacts</code></td><td>工具结果、上下文快照（脱敏后）</td><td>审计时能还原什么</td></tr>
+  <tr><td><code>events</code></td><td>时间线（带序号，供 SSE 断线续传）</td><td>过程中发生了什么</td></tr>
+  <tr><td><code>checkpoints</code></td><td>状态 + 计划版本 + 已完成步骤 + 账本键</td><td>崩溃后从哪里恢复</td></tr>
+  <tr><td><code>version</code></td><td>乐观锁版本号</td><td>有没有并发写冲突</td></tr>
+</table>
+<div class="note">账本条目 <code>ActionLedgerEntry</code>（<span class="path">models.py:133</span>）：<code>idempotency_key</code> / <code>status</code> / <code>attempt</code> / <code>remote_id</code> / <code>last_error</code> / <code>next_retry_at</code> / <code>reconciliation_status</code>。注意最后两个字段——它们是"UNKNOWN 不能盲目重试"的落地。</div>
+
+<h2 id="s4">4. 一次完整流程：7 个阶段的方法调用链</h2>
+<p>以 README 里的例子为例：<code>goal = "收集项目进展，生成并发送周报"</code>，收件人 <code>team@example.com</code>。</p>
+
+<div class="card">
+  <div class="stage"><div class="num">0</div><div class="stage-body">
+    <h4 style="margin-top:0">请求进入 → 租户与身份</h4>
+    <div class="chain"><span class="cm"># api.py:105</span>
+<span class="fn">tenant_context</span>(request, X-Tenant-ID, X-User-ID, Authorization)
+  ├─ 无 OIDC 配置 → Principal(roles={owner,approver,admin}, scopes={*})   <span class="cm"># 本地模式</span>
+  └─ 有 OIDC      → <span class="fn">OIDCVerifier.verify</span>(token) → Principal(tenant_id, roles, scopes)
+<span class="cm"># 之后所有 service / repository 调用都强制带 tenant_id</span></div>
+    <div class="kv"><b>防住：</b>跨租户访问、未授权调用。租户 ID 从头部取一次，之后全程透传，不信任请求体里的任何租户字段。</div>
+  </div></div>
+</div>
+
+<div class="card">
+  <div class="stage"><div class="num">1</div><div class="stage-body">
+    <h4 style="margin-top:0">创建任务 → 支持域门（模型之前）</h4>
+    <div class="chain"><span class="cm"># api.py:374 POST /v1/tasks → runtime.py:84</span>
+<span class="fn">WorkPilotService.create_task_async</span>(tenant_id, user_id, goal)
+  ├─ <span class="fn">_new_task</span>()            → 事件 "task.created" + 状态 CREATED→PLANNING
+  └─ <span class="fn">_structured_plan</span>()
+       └─ <span class="fn">StructuredPlanner.plan</span>()  <span class="cm"># planner.py:336</span>
+            └─ <span class="fn">IntentGate.enforce</span>(goal)  <span class="cm"># planner.py:131 —— 第一道门，不调模型</span>
+                 └─ <span class="fn">IntentGate.evaluate</span>()  <span class="cm"># planner.py:110</span>
+                      ├─ 命中 9 条拒绝模式 → REJECTED   （越权/注入/绕过审批/无界规划）
+                      ├─ 命中 4 类意图    → EXECUTABLE  （周报/会议跟进/Issue 汇总/故障场景）
+                      └─ 都不命中         → NEEDS_CLARIFICATION + 3 个澄清问题</div>
+    <div class="kv"><b>三种处置对应三种任务状态：</b>REJECTED（<code>runtime.py:307</code>）、NEEDS_CLARIFICATION（<code>:298</code>）、EXECUTABLE（<code>:317</code>）。</div>
+    <div class="kv"><b>防住：</b>Prompt Injection（"忽略之前指令"）、越权（<code>admin.delete</code>/<code>payroll.delete</code>/凭据/shell）、绕过审批（"跳过审批"/"降低风险"/"R3"）、无界规划（"循环依赖"/"100 个步骤"/"无限重试"）、以及模糊请求（说不清对象就问，不猜）。</div>
+    <div class="kv"><b>不做会怎样：</b>这些请求会一路走到模型，模型可能照做；即使模型拒绝，也已经付了 Token 成本和延迟。<b>这里是"在调模型之前就被挡掉"的源码依据。</b></div>
+  </div></div>
+</div>
+
+<div class="card">
+  <div class="stage"><div class="num">2</div><div class="stage-body">
+    <h4 style="margin-top:0">结构化规划 → 上下文、模型、校验、修复、回退</h4>
+    <div class="chain"><span class="cm"># planner.py:336 StructuredPlanner.plan 继续</span>
+<span class="fn">select_candidate_tools</span>(goal, tools)          <span class="cm"># context.py:145 工具检索，最多 8 个</span>
+<span class="fn">ContextBuilder.build</span>(goal, recipient, tools)  <span class="cm"># context.py:62</span>
+  ├─ 固定 4 层：system_invariants(优先级100) / user_goal(95) / org_policy(90) / tools(85)
+  ├─ 检索到的外部内容 → 包进 &lt;external_data trust='untrusted'&gt; 并打注入标记
+  └─ 按优先级 + Token 预算裁剪，装不下的进 omitted_sources
+<span class="fn">gateway.generate_structured</span>(messages, TaskPlan, policy, budget)   <span class="cm"># model_gateway.py</span>
+  ├─ 预算预检：input > max_input_tokens → BudgetExceededError   <span class="cm"># :128 硬闸，请求前就算</span>
+  ├─ response_format = json_schema(strict=True)                 <span class="cm"># :187 结构化输出</span>
+  ├─ 429/5xx/超时 → 最多 max_retries 次退避重试
+  └─ 成本估算 > max_cost_usd → BudgetExceededError              <span class="cm"># :236</span>
+
+<span class="cm"># 模型返回后 —— 确定性校验</span>
+<span class="fn">TaskPlan.model_validate</span>(response.output)                        <span class="cm"># Pydantic：形状与类型</span>
+<span class="fn">validate_plan</span>(plan, capabilities, fixed_risks, max_steps=20)     <span class="cm"># dag.py:49</span>
+  ├─ <span class="fn">topological_order</span>()  → 无环、依赖存在、id 唯一     <span class="cm"># dag.py:16</span>
+  ├─ 能力必须已注册；风险不得低于能力固定值（只能升不能降）
+  ├─ R3 → 直接报错禁止；R2 必须 requires_approval
+  ├─ R1/R2 副作用步骤必须定义 verification
+  └─ 步数 ≤ 20
+失败 → 把校验错误塞回消息，<b>只修复 1 次</b>（<code>for attempt in range(2)</code>, planner.py:356）
+仍失败 / 网关异常 → <span class="fn">DemoPlanner.plan</span>() 确定性回退（planner.py:400），并标记 used_fallback=True</div>
+    <div class="kv"><b>防住：</b>上下文超窗（预算裁剪）、外部内容污染提示词（trust 标签 + 注入标记）、成本与延迟失控（硬闸）、模型输出非法（Schema + 修复 1 次）、模型产生环/越权/无审批的计划（<code>validate_plan</code>）、模型不可用（确定性回退）、风险被模型调低（取 max）。</div>
+    <div class="kv"><b>不做会怎样：</b>"模型说 R0 就 R0"是最典型的 Agent 事故；没有回退则模型一挂整个系统不可用。</div>
+  </div></div>
+</div>
+
+<div class="card">
+  <div class="stage"><div class="num">3</div><div class="stage-body">
+    <h4 style="margin-top:0">计划落库 → 生成证据与检查点</h4>
+    <div class="chain"><span class="cm"># runtime.py:121 _attach_planning_evidence / :315 _apply_plan</span>
+上下文快照 → Artifact（只存 source/trust/长度/内容 sha256，<b>不存正文</b>，:148 sensitive_content_recorded=False）
+<span class="fn">_apply_plan</span>：plan 落库、disposition=EXECUTABLE、steps 初始化、PLANNING→PLAN_READY
+<span class="fn">_checkpoint</span>()  <span class="cm"># :698 记录 状态 + 计划版本 + 已完成步骤 + 账本键</span></div>
+    <div class="kv"><b>防住：</b>审计时无法还原"模型当时看到了什么"（快照 artifact）；敏感正文入库（只存哈希与元信息，且 <code>redact()</code> 脱敏）。</div>
+  </div></div>
+</div>
+
+<div class="card">
+  <div class="stage"><div class="num">4</div><div class="stage-body">
+    <h4 style="margin-top:0">开始执行 → 编排入口 + 单步推进</h4>
+    <div class="chain"><span class="cm"># api.py:571 POST /v1/tasks/{id}/run</span>
+配置了 Temporal → <span class="fn">TemporalTaskClient.start</span>()  <span class="cm"># client.py:22</span>
+  workflow_id = f"workpilot-task-{tenant}-{task}"  → WorkflowAlreadyStartedError 直接忽略（幂等启动）
+未配置 → 直接 await <span class="fn">service.run</span>()
+
+<span class="cm"># temporal.py:46 TaskWorkflow.run —— 循环推进，一次只推进到下一个阻塞点</span>
+while status not in TERMINAL:
+   WAITING_APPROVAL/PAUSED → <span class="fn">wait_condition</span>(状态变化, 审批超时 7 天)
+   否则 → activity <span class="fn">advance_task</span>(TaskRef)  <span class="cm"># activities.py:13</span>
+            └─ <span class="fn">service.run</span>() → <span class="fn">_run</span>()  <span class="cm"># runtime.py:324</span></div>
+    <div class="kv"><b>为什么循环里调 <code>advance_task</code> 而不是把整个流程写进 Workflow：</b>业务状态机在数据库（可回放、可审计），Temporal 只负责"什么时候继续推"和控制信号。Workflow 重放时不会重复执行副作用——因为真正的幂等判断在数据库账本里，不在 Workflow 内存里。</div>
+    <div class="kv"><b>防住：</b>重复启动（workflow_id 幂等）、长任务卡死（审批 7 天超时自动 cancel，temporal.py:57）、Worker 崩溃（History replay + Activity 重试策略：1s 起、×2、上限 10s、最多 5 次）。</div>
+  </div></div>
+</div>
+
+<div class="card">
+  <div class="stage"><div class="num">5</div><div class="stage-body">
+    <h4 style="margin-top:0">每一步执行 → 策略裁决 → 审批 → 账本 → 核验</h4>
+    <div class="chain"><span class="cm"># runtime.py:324 _run 主循环</span>
+for step_id in <span class="fn">topological_order</span>(plan.steps):        <span class="cm"># 拓扑序，不按模型给的顺序</span>
+  跳过已完成；依赖未全部成功则跳过
+
+  <span class="fn">registry.channel_for</span>(capability, preferred)      <span class="cm"># base.py:105 通道降级</span>
+  <span class="fn">policy.evaluate</span>(step, fixed_risk, channel)       <span class="cm"># policy.py:19</span>
+      effective = max(step.risk, fixed_risk)  → R3 拒绝 / R2 需审批
+
+  <span class="cm"># ── 审批闸门 ──</span>
+  if requires_approval 且 <span class="fn">_has_valid_approval</span>() 为假:            <span class="cm"># :714 校验 hash 一致</span>
+      <span class="fn">adapter.preview</span>(action) → human_summary（"向 x@y 发送邮件"）
+      <span class="fn">_ensure_pending_approval</span>(..., parameter_hash, plan_version)   <span class="cm"># :727</span>
+      → WAITING_APPROVAL → <b>保存并 return</b>（单步到此为止）
+
+  <span class="cm"># ── 幂等账本 ──</span>
+  key = <span class="fn">idempotency_key</span>(tenant, task, step, capability, 规范参数)   <span class="cm"># security.py:25</span>
+  existing = 账本里找 key
+  if existing.status in {CONFIRMED, EXECUTED}: <span class="fn">_result_from_ledger</span>()  <span class="cm"># 直接复用，不再调外部</span>
+  else:
+      if 无记录: 写 <b>RESERVED</b> 预占 → <b>先落库再执行</b>（:416）
+      <span class="fn">adapter.lookup</span>(action, key)       <span class="cm"># :424 先查远端有没有做过（lookup-before-execute）</span>
+      if 没有: <span class="fn">adapter.execute</span>(action, key)  <span class="cm"># :440 适配器内部再按 key 去重（fake.py:71）</span>
+
+  <span class="cm"># ── 失败分类（:442-494）──</span>
+  ConnectorError(retryable=True/False, outcome_unknown=True/False)
+      outcome_unknown → 账本 <b>UNKNOWN</b> + reconciliation_status=<b>REQUIRED</b>，指数退避
+      可重试          → RETRYABLE；不可重试 → FAILED
+      其他异常        → <b>UNKNOWN</b>（保守默认：不知道发生了什么就当未知）
+
+  <span class="cm"># ── 独立核验（不信任工具自述）──</span>
+  artifact = 工具结果（redact 后落 artifact）
+  <span class="fn">adapter.verify</span>(action, result)               <span class="cm"># :514 fake.py:84 拿 remote_id 回查远端状态</span>
+  未通过 → 步骤 FAILED → 任务 FAILED
+  通过   → 步骤 SUCCEEDED，账本 → <b>CONFIRMED</b>，reconciliation=CONFIRMED，写检查点
+
+全部成功 → SUCCEEDED</div>
+    <div class="kv"><b>这套顺序是本项目最硬的部分，顺序不能换：</b>预占（先记账）→ 查远端 → 才执行 → 独立核验 → 才置 CONFIRMED。</div>
+  </div></div>
+</div>
+
+<div class="card warn">
+  <div class="stage"><div class="num">6</div><div class="stage-body">
+    <h4 style="margin-top:0">人工审批 → 三重哈希校验</h4>
+    <div class="chain"><span class="cm"># api.py:596 → temporal.py:81 decide_approval（Update）→ runtime.py:549 approve</span>
+1. <span class="fn">_require_role</span>(request, "approver")                     <span class="cm"># RBAC</span>
+2. <span class="fn">_pending_approval</span>(task, step_id)                        <span class="cm"># 必须存在 PENDING 审批</span>
+3. <span class="fn">approve</span>(step_id, supplied_hash, approver):
+     supplied_hash != approval.parameter_hash → 拒绝     <span class="cm"># :562 批准的不是这个参数版本</span>
+     <span class="fn">parameter_hash</span>(当前步骤参数) != approval.parameter_hash → 置 EXPIRED + 拒绝  <span class="cm"># :566 参数已被改</span>
+     approval.plan_version != 当前 plan.version → 视为无效（:721 在 _has_valid_approval 里校验）
+4. OIDC 模式下：task.user_id == approver → 403 自己不能批自己的（api.py:606）</div>
+    <div class="kv"><b>防住：</b>审批后偷改参数（改了就过期，必须重批）、用旧审批继续执行新计划（plan_version）、非审批角色批准、自己批准自己。</div>
+    <div class="kv"><b>这就是简历上那句"参数哈希绑定的人工审批"的完整含义</b>——审批对象不是"这个步骤"，而是"这组参数的这个哈希值"。</div>
+  </div></div>
+</div>
+
+<div class="card">
+  <div class="stage"><div class="num">7</div><div class="stage-body">
+    <h4 style="margin-top:0">收尾与恢复 → 暂停、恢复、取消、重规划、对账</h4>
+    <div class="chain"><span class="fn">pause</span>()   <span class="cm"># runtime.py:593 记 paused_from，只允许从 PLAN_READY/RUNNING/WAITING_APPROVAL 暂停</span>
+<span class="fn">resume</span>()  <span class="cm"># :608 恢复到 paused_from 记录的那个状态，不是一律回到 RUNNING</span>
+<span class="fn">cancel</span>()  <span class="cm"># :619 把 PENDING/WAITING_APPROVAL 的步骤置 CANCELLED；终态不可再取消</span>
+<span class="fn">replan</span>() <span class="cm"># :245 → diff_plans(previous, candidate, completed)  planner.py:418</span>
+             changed ∪ removed 与 completed 有交集 → <b>直接抛错拒绝</b>（:431）
+<span class="fn">recovery_cases</span>() <span class="cm"># :633 列出账本里 UNKNOWN / RETRYABLE / reconciliation=REQUIRED 的条目</span></div>
+    <div class="kv"><b>Plan Diff 防住：</b>"重排后把已经发出去的邮件再发一次"——已成功步骤既不能删也不能改，只能新增。这是简历亮点 3 的源码依据。</div>
+    <div class="kv"><b>recovery_cases 防住：</b>UNKNOWN 状态被遗忘。它在 <code>/v1/recovery</code>（api.py:427）暴露成运维列表，要求人工或远端对账后才能继续。</div>
+  </div></div>
+</div>
+
+<h2 id="s5">5. 两套状态机</h2>
+<h3>5.1 任务状态机（<span class="path">state_machine.py:5</span>）</h3>
+<div class="chain">CREATED → PLANNING → {PLAN_READY | NEEDS_CLARIFICATION | REJECTED | FAILED | CANCELLED}
+NEEDS_CLARIFICATION → PLANNING（补充信息后重规划）| CANCELLED
+PLAN_READY → RUNNING | PAUSED | CANCELLED
+RUNNING → WAITING_APPROVAL | REPLANNING | PAUSED | CANCELLED | FAILED | SUCCEEDED
+WAITING_APPROVAL → RUNNING | REPLANNING | PAUSED | CANCELLED
+PAUSED → PLAN_READY | RUNNING | WAITING_APPROVAL | CANCELLED     <span class="cm"># 靠 paused_from 记住原状态</span>
+REJECTED / CANCELLED / FAILED / SUCCEEDED = 终态（空集合）</div>
+<p><code>ensure_transition()</code>（<span class="path">:49</span>）在每次 <code>_transition</code> 里强制校验，非法迁移直接抛错。<b>防住：</b>状态被并发请求串改（比如已完成任务又被审批、已取消任务又被恢复）。</p>
+
+<h3>5.2 账本状态机（<span class="path">runtime.py:396–537</span>）</h3>
+<table>
+  <tr><th style="width:130px">状态</th><th>何时置位</th><th>含义与后果</th></tr>
+  <tr><td><span class="tag">RESERVED</span></td><td>执行前预占并落库（:406）</td><td>意图已记录。崩溃后重放能看到"本来要做"，但 <b>不能据此认为已执行</b></td></tr>
+  <tr><td><span class="tag a">DISPATCHED</span></td><td>execute 返回成功（:496）</td><td>工具说做成了 —— <b>还不算数</b>，必须过 verify</td></tr>
+  <tr><td><span class="tag g">CONFIRMED</span></td><td>verify 通过（:536）</td><td>远端独立确认。再次执行直接复用结果</td></tr>
+  <tr><td><span class="tag w">UNKNOWN</span></td><td>超时 / <code>outcome_unknown</code> / 未知异常（:454, :480）</td><td>结果不明确，<code>reconciliation_status=REQUIRED</code>，重试前必须先查远端</td></tr>
+  <tr><td><span class="tag w">RETRYABLE</span></td><td>可重试错误（:458）</td><td>带 <code>next_retry_at</code> 指数退避（min(2^attempt, 60)s）</td></tr>
+  <tr><td><span class="tag r">FAILED</span></td><td>不可重试错误</td><td>终态，步骤失败</td></tr>
+</table>
+<div class="card danger">
+  <b>关键区别：DISPATCHED ≠ CONFIRMED。</b>工具返回 success 只说明"它自称成功了"（网络抖动、部分写入、异步生效延迟都可能让这句话不成立）。本项目把"远端真的存在这个对象"（<code>verify</code> 拿 remote_id 回查）作为成功判据——这是 <code>lookup</code> / <code>verify</code> 必须独立存在的原因。
+</div>
+
+<h2 id="s6">6. 防御矩阵：设计 → 防住什么 → 不做会怎样</h2>
+<table>
+  <tr><th style="width:190px">设计</th><th style="width:220px">源码位置</th><th>防住什么</th><th style="width:200px">不做会怎样</th></tr>
+  <tr><td><b>支持域门</b>（9 条拒绝模式 + 4 类意图）</td><td><code>planner.py:63–129</code></td><td>越权请求、Prompt Injection、绕过审批、无界规划、模糊请求</td><td>请求直冲模型，付了成本还可能照做</td></tr>
+  <tr><td><b>三类规划处置</b></td><td><code>runtime.py:292–309</code></td><td>把"做不了"和"说不清"显式化，而不是硬凑一个计划</td><td>Agent 对不支持的请求也强行出计划</td></tr>
+  <tr><td><b>上下文分层 + trust 标签</b></td><td><code>context.py:72–125</code></td><td>外部检索内容冒充指令；系统不变量被覆盖</td><td>文档/网页里的"忽略上述指令"生效</td></tr>
+  <tr><td><b>Token/成本/延迟硬闸</b></td><td><code>model_gateway.py:128/138/141/236</code></td><td>超窗、超支、超时（请求<b>前</b>就预算）</td><td>一次请求烧掉预算、卡死长任务</td></tr>
+  <tr><td><b>JSON Schema 严格输出</b></td><td><code>model_gateway.py:187</code></td><td>模型输出自由文本、结构漂移</td><td>解析靠正则和运气</td></tr>
+  <tr><td><b>只修复 1 次 + 确定性回退</b></td><td><code>planner.py:356, 400</code></td><td>修复循环失控；模型不可用</td><td>无限调用模型；模型挂了系统瘫痪</td></tr>
+  <tr><td><b>validate_plan</b>（无环/能力/风险/步数）</td><td><code>dag.py:49–84</code></td><td>循环依赖、不存在的能力、超长计划、缺失依赖</td><td>死循环；调用未注册工具</td></tr>
+  <tr><td><b>风险只能升不能降</b></td><td><code>dag.py:71–74, policy.py:25</code></td><td>模型把 R2 标成 R0 从而绕过审批</td><td><b>最典型的 Agent 越权路径</b></td></tr>
+  <tr><td><b>R3 禁止 / R2 必须审批</b></td><td><code>policy.py:26–34</code></td><td>高危动作无人把关</td><td>删库、外发邮件无人确认</td></tr>
+  <tr><td><b>R1/R2 必须定义 verification</b></td><td><code>dag.py:79–80</code></td><td>副作用步骤无法验证</td><td>"做了但不知道成没成"</td></tr>
+  <tr><td><b>参数哈希绑定审批</b></td><td><code>runtime.py:562–567, 714–724</code></td><td>审批后偷改参数、跨计划版本复用审批</td><td>批准发给 A，实际发给 B</td></tr>
+  <tr><td><b>审批人 ≠ 创建人</b></td><td><code>api.py:606</code></td><td>自己批自己的外部写入</td><td>审批形同虚设</td></tr>
+  <tr><td><b>幂等键（含规范参数）</b></td><td><code>security.py:25–33</code></td><td>重放/重试/重复调用造成重复副作用</td><td>同一封邮件发两次</td></tr>
+  <tr><td><b>先预占再执行</b></td><td><code>runtime.py:400–416</code></td><td>执行中崩溃导致"做了但没记录"</td><td>恢复时无从判断，只能盲重试</td></tr>
+  <tr><td><b>lookup-before-execute</b></td><td><code>runtime.py:424</code></td><td>上次已成功但结果丢失，重复执行</td><td>重复建单、重复发信</td></tr>
+  <tr><td><b>UNKNOWN + 对账标记</b></td><td><code>runtime.py:454–457, 480–485</code></td><td>超时后把"未知"当"失败"盲目重试</td><td>已成功的写操作被再做一遍</td></tr>
+  <tr><td><b>独立 verify（远端回查）</b></td><td><code>runtime.py:514</code>, <code>fake.py:84</code></td><td>信任工具自述的成功</td><td>显示成功其实没生效</td></tr>
+  <tr><td><b>指数退避 + next_retry_at</b></td><td><code>runtime.py:449–453</code></td><td>故障期疯狂重试压垮下游</td><td>雪崩，被限流封禁</td></tr>
+  <tr><td><b>ConnectorError 分类</b></td><td><code>base.py:36–61</code></td><td>所有失败一视同仁地重试</td><td>参数错误也重试 5 次</td></tr>
+  <tr><td><b>Plan Diff 保护已完成步骤</b></td><td><code>planner.py:418–431</code></td><td>重规划删改已成功步骤 → 重放副作用</td><td>邮件重发、工单重建</td></tr>
+  <tr><td><b>状态机强制迁移</b></td><td><code>state_machine.py:49</code></td><td>非法状态跳转（终态复活等）</td><td>已取消任务继续发邮件</td></tr>
+  <tr><td><b>乐观锁 version</b></td><td><code>repository.py:57–58</code></td><td>并发写覆盖（两人同时审批）</td><td>状态丢失、账本被覆盖</td></tr>
+  <tr><td><b>PostgreSQL RLS</b></td><td><code>db/repository.py:196–200</code></td><td>应用层漏了 WHERE 就跨租户泄漏</td><td>A 租户看到 B 租户数据</td></tr>
+  <tr><td><b>redact 脱敏</b></td><td><code>security.py:36–49</code></td><td>Token/密钥进入日志、artifact、时间线</td><td>密钥泄漏进审计产物</td></tr>
+  <tr><td><b>Secret 只存引用</b></td><td><code>credentials.py:20–31</code></td><td>凭据随业务对象落库</td><td>数据库一泄全泄</td></tr>
+  <tr><td><b>Outbox + 消费端去重</b></td><td><code>outbox.py:31–74</code></td><td>业务提交成功但事件丢失 / 重复投递</td><td>下游状态不一致</td></tr>
+  <tr><td><b>检查点 + 时间线</b></td><td><code>runtime.py:698–712</code></td><td>崩溃后无法恢复、无法审计</td><td>只能从头再来</td></tr>
+  <tr><td><b>Temporal Update/Signal</b></td><td><code>temporal.py:81–139</code></td><td>审批/控制指令丢失，或并发覆盖状态</td><td>审批后流程卡死</td></tr>
+  <tr><td><b>审批 7 天超时取消</b></td><td><code>temporal.py:57–65</code></td><td>无人审批的任务永远占用资源</td><td>悬挂任务堆积</td></tr>
+  <tr><td><b>通道降级</b></td><td><code>base.py:105–111</code></td><td>首选通道不可用导致步骤直接失败</td><td>MCP 挂了整个任务失败</td></tr>
+  <tr><td><b>收件人域名白名单</b></td><td><code>runtime.py:651–664</code></td><td>模型把邮件发给租户外地址</td><td>内部信息外泄</td></tr>
+  <tr><td><b>MCP 只读 + Schema 指纹</b></td><td><code>mcp.py:137–196</code>, <code>docs/mcp.md</code></td><td>工具描述被投毒、只读工具被用作写操作</td><td>工具投毒攻击</td></tr>
+</table>
+
+<h2 id="s7">7. 代码阅读路线与自测题</h2>
+<h3>建议顺序（约半天到一天）</h3>
+<ol>
+  <li><b><code>models.py</code></b>（30 分钟）—— 先把 <code>TaskRun / PlanStep / ActionLedgerEntry / ActionResult</code> 认全。不懂这几个，后面全是黑话。</li>
+  <li><b><code>runtime.py:324–547</code> 的 <code>_run</code></b>（1 小时）—— 逐行读主循环，这是整个系统的心脏。读的时候对着第 4 节第 5 阶段的调用链。</li>
+  <li><b><code>planner.py:63–170</code></b>（40 分钟）—— 支持域门和确定性计划长什么样。</li>
+  <li><b><code>dag.py</code> + <code>policy.py</code></b>（20 分钟）—— 短，但决定了计划的合法性边界。</li>
+  <li><b><code>connectors/base.py</code> + <code>fake.py</code></b>（30 分钟）—— 看懂四个方法为什么必须都存在。</li>
+  <li><b><code>workflows/</code> 三个文件</b>（30 分钟）—— 理解 Workflow 只管"什么时候推"。</li>
+  <li><b><code>repository.py</code> + <code>db/repository.py</code></b>（20 分钟）—— 乐观锁与租户隔离。</li>
+</ol>
+
+<h3>自测题（能答出来说明真懂了，面试也大概率问这些）</h3>
+<ol>
+  <li>模型把 <code>mail.send</code> 标成 R0，系统怎么处理？为什么不是直接按 R0 执行？（提示：<code>dag.py:71</code>）</li>
+  <li>审批通过后有人改了收件人，会发生什么？（提示：<code>runtime.py:564</code> 的 EXPIRED）</li>
+  <li>连接器超时了，账本是什么状态？下一步必须做什么才能重试？（提示：<code>UNKNOWN</code> + <code>reconciliation_status</code>）</li>
+  <li>Worker 在 <code>execute</code> 之后、<code>verify</code> 之前崩溃，恢复后会重复发邮件吗？为什么？（提示：账本 RESERVED/DISPATCHED 都不是 CONFIRMED，<code>lookup</code> 先查）</li>
+  <li>为什么 <code>verify</code> 要独立存在，而不能直接用 <code>execute</code> 的返回值当结果？（提示：网络分区、异步生效）</li>
+  <li><code>IntentGate</code> 为什么放在模型调用之前？放到之后会有什么损失？</li>
+  <li>重规划时想改一个已成功步骤的参数，系统会怎么做？（提示：<code>planner.py:429</code>）</li>
+  <li>两个人同时点审批，会发生什么？（提示：乐观锁 <code>version</code>）</li>
+  <li>Temporal Workflow 重放时，副作用会不会重复执行？（提示：幂等判断在数据库账本，不在 Workflow 内存）</li>
+  <li>为什么说"180 次回归未授权写入为 0"只代表离线确定性 Planner，不代表真实模型？</li>
+</ol>
+<div class="note">第 4 题和第 9 题是最常被追问的两道，答的时候要落到"账本状态 + 先查后做"上，不要停在"因为用了 Temporal"。</div>
+
+<h2 id="s8">8. 边界口径：哪些是真的，哪些还没做</h2>
+<p>面试时这部分要主动说清楚——<b>诚实边界本身就是加分项</b>，被问出来才承认是减分项。</p>
+<div class="card ok">
+  <b>已完成且有证据：</b>离线确定性评测（60 条 × 3 次 = 180 次，未授权写入 0，<code>evals/reports/intent-gated-v2/</code>）；真实 PostgreSQL RLS 对抗测试（<code>docs/reports/postgres-rls.md</code>）；真实 Temporal 本地服务故障注入（Worker 重启、Update 继续、History replay，<code>docs/reports/temporal-fault-injection.md</code>）；本地可观测栈；MCP 只读闭环；OIDC/RBAC；知识管线；浏览器证据通道；受控 Memory；任务/审批/恢复控制台。
+</div>
+<div class="card warn">
+  <b>需要外部条件、尚未验收：</b>真实云模型对比（缺 API Key 与真实价格）；GitHub OAuth 沙箱 E2E（需专用仓库与一次性 token）；生产 SLO；5 人可用性研究；V3 最终验收。仓库里<b>没有</b>伪造这些通过报告——这点可以直说。
+</div>
+<div class="card">
+  <b>架构取舍可以主动讲的：</b>为什么用单 Agent 而不是多 Agent（<code>docs/adr/003-single-agent-before-multi-agent.md</code>）；为什么选 Temporal（<code>docs/adr/002-temporal-workflow.md</code>）；响应丢失事故的复盘（<code>docs/reports/response-loss-postmortem.md</code>，对应账本 UNKNOWN 设计的由来）。
+</div>
+
+<hr>
+<p class="note">本手册基于工作区源码逐文件整理，行号随代码变动可能漂移，以方法名为准。深挖某一层时，优先读 <code>runtime.py</code> 的 <code>_run</code> 与 <code>planner.py</code> 的 <code>StructuredPlanner.plan</code>，这两处串起了 80% 的设计。</p>
+
+</div>
+</body>
+</html>
