@@ -5,8 +5,6 @@ WorkPilot 是一个面向企业跨系统办公流程的安全执行 Agent。它�
 > 项目状态：`0.2.0`（Alpha）。本地 Demo、自动化测试和离线评测可复现；真实云模型、GitHub
 > OAuth 沙箱和生产环境能力只有在提供外部凭据并完成对应验收后才算通过。
 
-详细产品与技术方案见 [MVP 完整实现方案](docs/mvp-implementation-plan.md)，本次实现边界见 [初版架构与状态](docs/initial-architecture.md)，持久化与可靠执行路线见 [V2 修改设计方案](docs/v2-design-plan.md)，面向 Agent 岗位的能力盘点、证据标准和后续实施顺序见 [V3 面试竞争力与产品完整性方案](docs/v3-interview-advantage-plan.md)。
-
 ## 已实现
 
 - FastAPI 任务、审批、暂停、恢复、取消、Artifact 与回放接口；
@@ -182,19 +180,6 @@ benchmarks/               可重复 API 延迟、吞吐与容量基线
 
 当前已完成 V4 的安全基线收口：Planner 前置支持域门、澄清/拒绝状态、持久化与控制台闭环，固定任务集安全门禁进入 CI。项目也已完成 GitHub OAuth/Adapter 契约、真实 Temporal 本地服务恢复测试、真实 PostgreSQL RLS 对抗测试、本地可观测栈、MCP 只读安全闭环、OIDC/RBAC 鉴权、带 ACL 和引用的文件检索管线、策略化 Playwright 浏览器证据通道、受控 Memory，以及任务/审批/恢复/评测产品控制台，但不宣称真实模型、GitHub 沙箱 E2E、生产 SLO、5 人可用性研究或 V3 最终验收已完成。真实云模型、GitHub OAuth 沙箱和用户研究需要外部账号或真实参与者。规划安全边界见 [docs/planning-safety-gate.md](docs/planning-safety-gate.md)，认证部署说明见 [docs/authentication.md](docs/authentication.md)，文件管线说明见 [docs/knowledge-pipeline.md](docs/knowledge-pipeline.md)，Memory 边界见 [docs/memory.md](docs/memory.md)，控制台说明见 [docs/product-console.md](docs/product-console.md)，浏览器边界见 [docs/browser-adapter.md](docs/browser-adapter.md)，Helm/供应链见 [docs/deployment-and-supply-chain.md](docs/deployment-and-supply-chain.md)，容量边界见 [docs/performance.md](docs/performance.md)，数据库实测证据见 [docs/reports/postgres-rls.md](docs/reports/postgres-rls.md)。
 
-面试时建议从 [简历证据索引](docs/resume-evidence.md)和 [8 分钟 Demo 脚本](docs/demo-runbook.md)开始；
-项目定位、目标用户、完整功能、技术栈和 Agent 岗位竞争力的集中说明见
-[项目全景与 Agent 岗位面试指南](docs/project-overview-and-agent-interview.md)；
-面向 AI Agent 初学者的概念讲解、技术栈教程、代码阅读路线和面试追问见
-[新人学习与面试讲解手册](docs/newcomer-agent-learning-guide.md)，可下载的 Word 版本见
-[WorkPilot 新人学习与面试讲解手册](docs/WorkPilot-新人学习与面试讲解手册.docx)；
-如果希望先用生活化类比理解系统分层、工具职责和完整任务链路，可下载
-[WorkPilot 小白版整体架构学习手册](docs/WorkPilot-小白版整体架构学习手册.docx)；
-面向腾讯、华为等互联网大厂 HR 面试的项目真实性、个人贡献、行为问题、岗位动机和压力追问见
-[WorkPilot HR 面试问题与回答手册](docs/WorkPilot-HR面试问题与回答手册.docx)；
-V3 C4/关键时序见 [架构图](docs/architecture-v3.md)，SLO 计算口径见
-[SLO、误差预算与告警](docs/slo-and-alerts.md)。未完成的 5 人研究只提供
-[可执行研究协议](docs/user-study-protocol.md)，不伪造参与者或结果。
 最新整体完成度、当前数据与分阶段后续路线见
 [补充方案 4](docs/v4-completion-and-next-steps.md)。
 
