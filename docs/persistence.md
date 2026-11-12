@@ -24,6 +24,17 @@ V2 第一阶段把任务业务事实从进程内存迁移到关系数据库，�
 
 `action_ledger.idempotency_key` 是主键。它包含 tenant、task、step、动作和规范化参数，为后续 at-least-once Activity 投递提供数据库去重基础。
 
+## 任务租约与栅栏令牌
+
+`task_runs` 上有三列：`lease_owner`、`lease_expires_at`、`fence_token`。
+
+- **认领**是一次条件 `UPDATE`：只有当 `lease_expires_at IS NULL` 或已过期时才成功，同时 `fence_token = fence_token + 1`。抢不到返回 `None`，调用方直接拒绝推进（fail-closed），不读不写业务状态。
+- **续租**（心跳，默认每 `lease/3` 秒）与**释放**都是 `WHERE lease_owner = :me AND fence_token = :token` 的条件更新。改到 0 行即说明已被接管，`LeaseKeeper` 置 `lost=True`。
+- **执行前的闸**：`WorkPilotService` 在每次 `lookup` / `execute` / `verify` 之前调用 `keeper.check()`，租约或令牌不匹配就抛 `LeaseLost`，旧 Worker 不会对外部系统发出第二个请求；Temporal Activity 侧把它转成 `non_retryable` 的 `ApplicationError`，避免僵尸进程反复重试。
+- 租约列与业务状态解耦：`save()` 只写版本号和业务字段，不覆盖租约列；认领导致的令牌递增也不影响乐观锁版本号。
+
+边界要说清：租约只能挡住“已经失去所有权”的 Worker 发起**新的**副作用。如果外部调用已经发出、进程在响应返回前被接管，那一笔仍要靠幂等键 + `lookup-before-retry` 在接管方对账——**租约是事前闸，幂等与核对是事后账，两者不能互相替代**。
+
 ## 租户隔离
 
 Repository 的所有入口都要求 `tenant_id`。PostgreSQL 连接会在事务内设置：

@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from workpilot.connectors.base import CapabilityRegistry, ConnectorError
 from workpilot.dag import topological_order, validate_plan
+from workpilot.lease import DEFAULT_LEASE_SECONDS, LeaseKeeper, LeaseLost
 from workpilot.models import (
     ActionLedgerEntry,
     ActionRequest,
@@ -53,6 +54,8 @@ class WorkPilotService:
         policy: PolicyEngine | None = None,
         max_steps: int = 20,
         allowed_recipient_domains: set[str] | None = None,
+        worker_id: str | None = None,
+        lease_seconds: float = DEFAULT_LEASE_SECONDS,
     ) -> None:
         self.repository = repository
         self.registry = registry
@@ -60,6 +63,8 @@ class WorkPilotService:
         self.policy = policy or PolicyEngine()
         self.max_steps = max_steps
         self.allowed_recipient_domains = allowed_recipient_domains or {"example.com"}
+        self.worker_id = worker_id or f"worker-{uuid4().hex[:8]}"
+        self.lease_seconds = lease_seconds
 
     def create_task(
         self,
@@ -329,6 +334,34 @@ class WorkPilotService:
             raise ValueError(f"task cannot run from {task.status.value}")
         assert task.plan is not None
 
+        lease = self.repository.claim_lease(
+            tenant_id, task_id, self.worker_id, self.lease_seconds
+        )
+        if lease is None:
+            raise LeaseLost(
+                f"task {task_id} is leased by another worker; refusing to advance"
+            )
+        keeper = LeaseKeeper(
+            self.repository, lease, lease_seconds=self.lease_seconds
+        ).start()
+        self._event(
+            task,
+            "lease.claimed",
+            "已取得任务租约，开始按拓扑序推进",
+            details=keeper.snapshot(),
+        )
+        try:
+            return await self._advance(tenant_id, task_id, task, keeper)
+        finally:
+            keeper.stop()
+            self.repository.release_lease(
+                tenant_id, task_id, self.worker_id, lease.fence_token
+            )
+
+    async def _advance(
+        self, tenant_id: str, task_id: str, task: TaskRun, keeper: LeaseKeeper
+    ) -> TaskRun:
+        assert task.plan is not None
         for step_id in topological_order(task.plan.steps):
             step_run = task.steps[step_id]
             if step_run.status is StepStatus.SUCCEEDED:
@@ -368,6 +401,7 @@ class WorkPilotService:
                 parameters=step.parameters,
                 channel=channel,
                 deadline_at=utc_now() + timedelta(seconds=60),
+                fence_token=keeper.fence_token,
             )
             params_hash = parameter_hash(action.parameters)
             adapter = self.registry.adapter_for(step.capability)
@@ -421,8 +455,10 @@ class WorkPilotService:
                     "tool.lookup",
                     {"task.id": task_id, "step.id": step.id, "tool.name": step.capability},
                 ):
+                    keeper.check()
                     result = await adapter.lookup(action, key)
                 if result is None:
+                    keeper.check()
                     existing.attempt += 1
                     existing.last_attempt_at = utc_now()
                     existing.last_error = None
@@ -511,6 +547,7 @@ class WorkPilotService:
                 "tool.verify",
                 {"task.id": task_id, "step.id": step.id, "tool.name": step.capability},
             ):
+                keeper.check()
                 verification = await adapter.verify(action, result)
             verification.evidence_refs = list(
                 dict.fromkeys([f"artifact://{artifact.id}", *verification.evidence_refs])
