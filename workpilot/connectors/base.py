@@ -9,8 +9,11 @@ from workpilot.models import (
     ActionRequest,
     ActionResult,
     Channel,
+    ImpactClass,
     RiskLevel,
     VerificationResult,
+    impact_for_risk,
+    max_risk,
 )
 
 
@@ -19,6 +22,13 @@ class Capability:
     name: str
     risk: RiskLevel
     channels: frozenset[Channel]
+    impact: ImpactClass | None = None
+
+    @property
+    def effective_impact(self) -> ImpactClass:
+        """声明的影响面；未声明时按风险等级推导。"""
+
+        return self.impact or impact_for_risk(self.risk)
 
 
 class ToolAdapter(Protocol):
@@ -67,15 +77,40 @@ def ensure_before_deadline(deadline_at: datetime | None, now: datetime) -> None:
 
 
 class CapabilityRegistry:
-    def __init__(self, adapters: list[ToolAdapter]) -> None:
+    def __init__(
+        self,
+        adapters: list[ToolAdapter],
+        *,
+        risk_floor: dict[str, RiskLevel] | None = None,
+        denied: frozenset[str] | set[str] = frozenset(),
+    ) -> None:
+        """risk_floor 只能把等级往上抬，不能往下压；denied 直接不注册。"""
+
         self._by_capability: dict[str, ToolAdapter] = {}
         self._metadata: dict[str, Capability] = {}
+        floors = risk_floor or {}
+        unknown_floors = set(floors) - {
+            capability.name for adapter in adapters for capability in adapter.capabilities()
+        }
+        if unknown_floors:
+            raise ValueError(
+                "policy references unknown capabilities: " + ", ".join(sorted(unknown_floors))
+            )
         for adapter in adapters:
             for capability in adapter.capabilities():
                 if capability.name in self._by_capability:
                     raise ValueError(f"duplicate capability: {capability.name}")
+                if capability.name in denied:
+                    continue
+                floor = floors.get(capability.name)
+                risk = capability.risk if floor is None else max_risk(capability.risk, floor)
                 self._by_capability[capability.name] = adapter
-                self._metadata[capability.name] = capability
+                self._metadata[capability.name] = Capability(
+                    name=capability.name,
+                    risk=risk,
+                    channels=capability.channels,
+                    impact=capability.effective_impact,
+                )
 
     @property
     def names(self) -> set[str]:
@@ -85,11 +120,19 @@ class CapabilityRegistry:
     def risks(self) -> dict[str, RiskLevel]:
         return {name: item.risk for name, item in self._metadata.items()}
 
+    @property
+    def impacts(self) -> dict[str, ImpactClass]:
+        return {name: item.effective_impact for name, item in self._metadata.items()}
+
+    def impact_for(self, capability: str) -> ImpactClass:
+        return self._metadata[capability].effective_impact
+
     def planning_tools(self) -> list[dict[str, object]]:
         return [
             {
                 "name": name,
                 "risk": metadata.risk.value,
+                "impact": metadata.effective_impact.value,
                 "channels": sorted(channel.value for channel in metadata.channels),
                 "parameters": {},
             }

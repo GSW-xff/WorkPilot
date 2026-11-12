@@ -20,6 +20,63 @@ class RiskLevel(StrEnum):
     R3 = "R3"
 
 
+class ImpactClass(StrEnum):
+    """按影响面划分的动作类别，与 RiskLevel（处置强度）正交。
+
+    READ_ONLY         只读，不改远端任何状态
+    REVERSIBLE_WRITE  写，但产物在系统内可删可改，不留外部痕迹
+    IRREVERSIBLE_WRITE 写，且一旦发出无法收回（对外发送、建远端对象）
+    """
+
+    READ_ONLY = "read_only"
+    REVERSIBLE_WRITE = "reversible_write"
+    IRREVERSIBLE_WRITE = "irreversible_write"
+
+
+_IMPACT_BY_RISK: dict[RiskLevel, ImpactClass] = {
+    RiskLevel.R0: ImpactClass.READ_ONLY,
+    RiskLevel.R1: ImpactClass.REVERSIBLE_WRITE,
+    RiskLevel.R2: ImpactClass.IRREVERSIBLE_WRITE,
+    RiskLevel.R3: ImpactClass.IRREVERSIBLE_WRITE,
+}
+
+_IMPACT_ORDER: dict[ImpactClass, int] = {
+    ImpactClass.READ_ONLY: 0,
+    ImpactClass.REVERSIBLE_WRITE: 1,
+    ImpactClass.IRREVERSIBLE_WRITE: 2,
+}
+
+
+def impact_for_risk(risk: RiskLevel) -> ImpactClass:
+    """风险等级推导出的最低影响面，计划不得低于它。"""
+
+    return _IMPACT_BY_RISK[risk]
+
+
+_RISK_ORDER: dict[RiskLevel, int] = {
+    RiskLevel.R0: 0,
+    RiskLevel.R1: 1,
+    RiskLevel.R2: 2,
+    RiskLevel.R3: 3,
+}
+
+
+def risk_value(risk: RiskLevel) -> int:
+    return _RISK_ORDER[risk]
+
+
+def max_risk(*risks: RiskLevel) -> RiskLevel:
+    return max(risks, key=risk_value)
+
+
+def impact_value(impact: ImpactClass) -> int:
+    return _IMPACT_ORDER[impact]
+
+
+def max_impact(*impacts: ImpactClass) -> ImpactClass:
+    return max(impacts, key=impact_value)
+
+
 class TaskStatus(StrEnum):
     CREATED = "CREATED"
     PLANNING = "PLANNING"
@@ -81,6 +138,7 @@ class PlanStep(BaseModel):
     capability: str
     preferred_channel: Channel = Channel.API
     risk: RiskLevel = RiskLevel.R0
+    impact: ImpactClass | None = None
     requires_approval: bool = False
     parameters: dict[str, Any] = Field(default_factory=dict)
     expected_effects: list[str] = Field(default_factory=list)

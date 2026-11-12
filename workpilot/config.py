@@ -40,6 +40,7 @@ class Settings:
     oidc_jwks_url: str | None = None
     knowledge_object_dir: str = "/tmp/workpilot-objects"
     knowledge_max_file_bytes: int = 10 * 1024 * 1024
+    policy_path: str | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -85,4 +86,5 @@ class Settings:
             knowledge_max_file_bytes=int(
                 os.getenv("WORKPILOT_KNOWLEDGE_MAX_FILE_BYTES", str(10 * 1024 * 1024))
             ),
+            policy_path=os.getenv("WORKPILOT_POLICY_PATH") or None,
         )

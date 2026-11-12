@@ -42,6 +42,7 @@ class TaskWorkflow:
     def __init__(self) -> None:
         self._ref: TaskRef | None = None
         self._status = "CREATED"
+        self._last_approval_error: str | None = None
 
     @workflow.run
     async def run(self, task: TaskRef) -> str:
@@ -98,6 +99,39 @@ class TaskWorkflow:
             cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
         )
         return self._status
+
+    @workflow.signal
+    async def submit_approval(self, command: ApprovalCommand) -> None:
+        """信号审批通道：送达即落库，wait_condition 随即唤醒继续执行。
+
+        Signal 没有回执，因此校验失败不抛错，只把原因记在 last_approval_error 上
+        供 Query 读取；需要"审批人当场知道批没批成功"的调用方仍用 Update。
+        """
+
+        if (
+            self._ref is None
+            or command.tenant_id != self._ref.tenant_id
+            or command.task_id != self._ref.task_id
+        ):
+            self._last_approval_error = "approval targets a different task"
+            return
+        if self._status != "WAITING_APPROVAL":
+            self._last_approval_error = f"task is not waiting for approval: {self._status}"
+            return
+        activity_name = "approve_task" if command.approved else "reject_task"
+        self._status = await workflow.execute_activity(
+            activity_name,
+            command,
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            heartbeat_timeout=HEARTBEAT_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY,
+            cancellation_type=workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+        )
+        self._last_approval_error = None
+
+    @workflow.query
+    def last_approval_error(self) -> str | None:
+        return self._last_approval_error
 
     @workflow.signal
     async def pause(self) -> None:

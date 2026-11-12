@@ -9,6 +9,7 @@ from workpilot.models import (
     ActionRequest,
     ActionResult,
     Channel,
+    ImpactClass,
     RiskLevel,
     VerificationResult,
     VerificationStatus,
@@ -51,12 +52,20 @@ class FakeEnterpriseAdapter:
     def capabilities(self) -> list[Capability]:
         api = frozenset({Channel.API})
         return [
-            Capability("project.search_updates", RiskLevel.R0, api),
-            Capability("knowledge.search", RiskLevel.R0, api),
-            Capability("report.compose", RiskLevel.R1, api),
-            Capability("task.create", RiskLevel.R2, api),
-            Capability("mail.send", RiskLevel.R2, api),
-            Capability("calendar.create", RiskLevel.R2, api),
+            Capability(
+                "project.search_updates", RiskLevel.R0, api, ImpactClass.READ_ONLY
+            ),
+            Capability("knowledge.search", RiskLevel.R0, api, ImpactClass.READ_ONLY),
+            Capability(
+                "report.compose", RiskLevel.R1, api, ImpactClass.REVERSIBLE_WRITE
+            ),
+            Capability(
+                "task.create", RiskLevel.R2, api, ImpactClass.IRREVERSIBLE_WRITE
+            ),
+            Capability("mail.send", RiskLevel.R2, api, ImpactClass.IRREVERSIBLE_WRITE),
+            Capability(
+                "calendar.create", RiskLevel.R2, api, ImpactClass.IRREVERSIBLE_WRITE
+            ),
         ]
 
     async def preview(self, action: ActionRequest) -> ActionPreview:

@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from workpilot.models import PlanStep, RiskLevel, TaskPlan
+from workpilot.models import (
+    ImpactClass,
+    PlanStep,
+    RiskLevel,
+    TaskPlan,
+    impact_for_risk,
+    impact_value,
+)
+from workpilot.models import max_risk as _max_risk
+from workpilot.models import risk_value as _risk_value
 
 
 @dataclass(slots=True)
@@ -74,6 +83,20 @@ def validate_plan(
         effective = max_risk(step.risk, fixed)
         if effective is RiskLevel.R3:
             errors.append(f"R3 action is forbidden in MVP: {step.id}")
+
+        # 影响面与风险正交，但同样只能往严的方向声明：低于推导值即视为降级。
+        floor_impact = impact_for_risk(effective)
+        declared = step.impact or floor_impact
+        if impact_value(declared) < impact_value(floor_impact):
+            errors.append(
+                f"impact for {step.id} cannot be lower than {floor_impact.value}"
+            )
+        effective_impact = max((declared, floor_impact), key=impact_value)
+        if effective_impact is ImpactClass.IRREVERSIBLE_WRITE and not step.requires_approval:
+            errors.append(
+                f"irreversible write must require approval: {step.id}"
+            )
+
         if effective is RiskLevel.R2 and not step.requires_approval:
             errors.append(f"R2 step must require approval: {step.id}")
         if effective in {RiskLevel.R1, RiskLevel.R2} and not step.verification:
@@ -84,9 +107,9 @@ def validate_plan(
     return order
 
 
-def risk_value(risk: RiskLevel) -> int:
-    return {RiskLevel.R0: 0, RiskLevel.R1: 1, RiskLevel.R2: 2, RiskLevel.R3: 3}[risk]
+def risk_value(risk: RiskLevel) -> int:  # re-exported for callers importing from dag
+    return _risk_value(risk)
 
 
 def max_risk(*risks: RiskLevel) -> RiskLevel:
-    return max(risks, key=risk_value)
+    return _max_risk(*risks)

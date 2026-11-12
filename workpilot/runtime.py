@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from workpilot.connectors.base import CapabilityRegistry, ConnectorError
 from workpilot.dag import topological_order, validate_plan
-from workpilot.lease import DEFAULT_LEASE_SECONDS, LeaseKeeper, LeaseLost
+from workpilot.lease import DEFAULT_LEASE_SECONDS, LeaseKeeper, LeaseLost  # noqa: F401
 from workpilot.models import (
     ActionLedgerEntry,
     ActionRequest,
@@ -28,10 +28,12 @@ from workpilot.planner import (
     DemoPlanner,
     PlanningDecisionError,
     PlanningOutcome,
+    PlanRejected,
     StructuredPlanner,
     diff_plans,
 )
 from workpilot.policy import PolicyEngine
+from workpilot.policy_profile import PolicyProfile, default_policy
 from workpilot.repository import TaskRepository
 from workpilot.security import idempotency_key, parameter_hash, redact
 from workpilot.state_machine import ensure_transition
@@ -52,19 +54,27 @@ class WorkPilotService:
         registry: CapabilityRegistry,
         planner: DemoPlanner | StructuredPlanner | None = None,
         policy: PolicyEngine | None = None,
-        max_steps: int = 20,
+        max_steps: int | None = None,
         allowed_recipient_domains: set[str] | None = None,
         worker_id: str | None = None,
-        lease_seconds: float = DEFAULT_LEASE_SECONDS,
+        lease_seconds: float | None = None,
+        policy_profile: PolicyProfile | None = None,
     ) -> None:
         self.repository = repository
         self.registry = registry
         self.planner = planner or DemoPlanner()
-        self.policy = policy or PolicyEngine()
-        self.max_steps = max_steps
-        self.allowed_recipient_domains = allowed_recipient_domains or {"example.com"}
+        # 显式传入的 profile 优先；否则从 PolicyEngine 取，保证"策略只有一份事实源"
+        profile = policy_profile or getattr(policy, "policy", None) or default_policy()
+        self.policy_profile = profile
+        self.policy = policy or PolicyEngine(profile)
+        self.max_steps = max_steps if max_steps is not None else profile.max_steps
+        self.allowed_recipient_domains = (
+            allowed_recipient_domains or profile.allowed_domains
+        )
         self.worker_id = worker_id or f"worker-{uuid4().hex[:8]}"
-        self.lease_seconds = lease_seconds
+        self.lease_seconds = (
+            lease_seconds if lease_seconds is not None else profile.lease_seconds
+        )
 
     def create_task(
         self,
@@ -111,15 +121,49 @@ class WorkPilotService:
         self, task: TaskRun, recipient: str, trace_id: str
     ) -> PlanningOutcome:
         assert isinstance(self.planner, StructuredPlanner)
-        outcome = await self.planner.plan(
-            task.goal,
-            recipient,
-            metadata={
-                "trace_id": trace_id,
-                "tenant_id": task.tenant_id,
-                "task_id": task.id,
-            },
-        )
+        metadata = {
+            "trace_id": trace_id,
+            "tenant_id": task.tenant_id,
+            "task_id": task.id,
+        }
+        try:
+            outcome = await self.planner.plan(task.goal, recipient, metadata=metadata)
+        except PlanRejected as first:
+            # 第一段：候选计划没通过六项校验 —— 回退重规划，而不是直接兜底。
+            TELEMETRY.metrics.counter("plan_replan_total", outcome="requested")
+            self._event(
+                task,
+                "plan.replan_requested",
+                "计划未通过确定性校验，回退重规划",
+                details={"errors": first.errors[:5]},
+            )
+            try:
+                outcome = await self.planner.replan(
+                    task.goal,
+                    recipient,
+                    rejected=first.candidate,
+                    errors=first.errors,
+                    metadata=metadata,
+                )
+                TELEMETRY.metrics.counter("plan_replan_total", outcome="succeeded")
+                self._event(
+                    task,
+                    "plan.replanned",
+                    "重规划产出修补版计划并通过校验",
+                    details={"errors_before": len(first.errors)},
+                )
+            except PlanRejected as second:
+                # 第二段仍不合格：降级到人工写死的确定性模板，但仍然过校验。
+                TELEMETRY.metrics.counter("plan_replan_total", outcome="exhausted")
+                self._event(
+                    task,
+                    "plan.replan_failed",
+                    "重规划仍未通过校验，回退确定性模板",
+                    details={"errors": (first.errors + second.errors)[:8]},
+                )
+                outcome = self.planner.fallback_outcome(
+                    task.goal, recipient, errors=first.errors + second.errors
+                )
         self._validate_recipient_domains(outcome.plan)
         return outcome
 
@@ -163,6 +207,7 @@ class WorkPilotService:
             details={
                 "trace_id": trace_id,
                 "used_fallback": outcome.used_fallback,
+                "replanned": outcome.replanned,
                 "model_calls": len(outcome.model_calls),
                 "validation_error_count": len(outcome.validation_errors),
                 "context_snapshot_id": snapshot_id,
@@ -382,7 +427,12 @@ class WorkPilotService:
                     "tool.name": step.capability,
                 },
             ):
-                decision = self.policy.evaluate(step, self.registry.risks[step.capability], channel)
+                decision = self.policy.evaluate(
+                    step,
+                    self.registry.risks[step.capability],
+                    channel,
+                    self.registry.impact_for(step.capability),
+                )
             if not decision.allowed:
                 TELEMETRY.metrics.counter(
                     "policy_denied_total", capability=step.capability, risk=step.risk.value

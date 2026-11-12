@@ -27,6 +27,7 @@ from workpilot.models import (
     ActionRequest,
     ActionResult,
     Channel,
+    ImpactClass,
     RiskLevel,
     VerificationResult,
     VerificationStatus,
@@ -262,10 +263,14 @@ class GitHubAdapter:
     def capabilities(self) -> list[Capability]:
         api = frozenset({Channel.API})
         return [
-            Capability("github.issues.list", RiskLevel.R0, api),
-            Capability("github.issue.get", RiskLevel.R0, api),
-            Capability("github.issue.create", RiskLevel.R2, api),
-            Capability("github.issue.comment", RiskLevel.R2, api),
+            Capability("github.issues.list", RiskLevel.R0, api, ImpactClass.READ_ONLY),
+            Capability("github.issue.get", RiskLevel.R0, api, ImpactClass.READ_ONLY),
+            Capability(
+                "github.issue.create", RiskLevel.R2, api, ImpactClass.IRREVERSIBLE_WRITE
+            ),
+            Capability(
+                "github.issue.comment", RiskLevel.R2, api, ImpactClass.IRREVERSIBLE_WRITE
+            ),
         ]
 
     async def preview(self, action: ActionRequest) -> ActionPreview:
