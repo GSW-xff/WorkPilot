@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import Engine, create_engine, delete, select, text, update
 from sqlalchemy.orm import Session, selectinload, sessionmaker
@@ -18,6 +18,7 @@ from workpilot.db.models import (
     TimelineEventRecord,
     VerificationRecord,
 )
+from workpilot.lease import TaskLease
 from workpilot.models import (
     ActionLedgerEntry,
     Approval,
@@ -150,6 +151,94 @@ class SQLAlchemyTaskRepository(TaskRepository):
                 .order_by(TaskRunRecord.created_at.desc())
             )
             return [self._to_domain(record) for record in session.scalars(statement)]
+
+    def claim_lease(
+        self, tenant_id: str, task_id: str, owner: str, lease_seconds: float
+    ) -> TaskLease | None:
+        now = utc_now()
+        expires_at = now + timedelta(seconds=lease_seconds)
+        with self._session_factory.begin() as session:
+            self._set_tenant(session, tenant_id)
+            result = session.execute(
+                update(TaskRunRecord)
+                .where(
+                    TaskRunRecord.id == task_id,
+                    TaskRunRecord.tenant_id == tenant_id,
+                    (TaskRunRecord.lease_expires_at.is_(None))
+                    | (TaskRunRecord.lease_expires_at < now),
+                )
+                .values(
+                    lease_owner=owner,
+                    lease_expires_at=expires_at,
+                    fence_token=TaskRunRecord.fence_token + 1,
+                )
+            )
+            if getattr(result, "rowcount", 0) != 1:
+                return None
+            fence_token = session.scalar(
+                select(TaskRunRecord.fence_token).where(
+                    TaskRunRecord.id == task_id,
+                    TaskRunRecord.tenant_id == tenant_id,
+                )
+            )
+        return TaskLease(tenant_id, task_id, owner, int(fence_token or 1), expires_at)
+
+    def renew_lease(
+        self,
+        tenant_id: str,
+        task_id: str,
+        owner: str,
+        fence_token: int,
+        lease_seconds: float,
+    ) -> bool:
+        with self._session_factory.begin() as session:
+            self._set_tenant(session, tenant_id)
+            result = session.execute(
+                update(TaskRunRecord)
+                .where(
+                    TaskRunRecord.id == task_id,
+                    TaskRunRecord.tenant_id == tenant_id,
+                    TaskRunRecord.lease_owner == owner,
+                    TaskRunRecord.fence_token == fence_token,
+                )
+                .values(lease_expires_at=utc_now() + timedelta(seconds=lease_seconds))
+            )
+            return int(getattr(result, "rowcount", 0) or 0) == 1
+
+    def release_lease(
+        self, tenant_id: str, task_id: str, owner: str, fence_token: int
+    ) -> bool:
+        with self._session_factory.begin() as session:
+            self._set_tenant(session, tenant_id)
+            result = session.execute(
+                update(TaskRunRecord)
+                .where(
+                    TaskRunRecord.id == task_id,
+                    TaskRunRecord.tenant_id == tenant_id,
+                    TaskRunRecord.lease_owner == owner,
+                    TaskRunRecord.fence_token == fence_token,
+                )
+                .values(lease_owner=None, lease_expires_at=None)
+            )
+            return int(getattr(result, "rowcount", 0) or 0) == 1
+
+    def owns_lease(
+        self, tenant_id: str, task_id: str, owner: str, fence_token: int
+    ) -> bool:
+        with self._session_factory() as session:
+            self._set_tenant(session, tenant_id)
+            found = session.scalar(
+                select(TaskRunRecord.id)
+                .where(
+                    TaskRunRecord.id == task_id,
+                    TaskRunRecord.tenant_id == tenant_id,
+                    TaskRunRecord.lease_owner == owner,
+                    TaskRunRecord.fence_token == fence_token,
+                    TaskRunRecord.lease_expires_at > utc_now(),
+                )
+                .limit(1)
+            )
+            return found is not None
 
     def close(self) -> None:
         self.engine.dispose()

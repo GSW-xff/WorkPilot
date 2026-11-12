@@ -218,6 +218,7 @@ class ActionRequest(BaseModel):
     parameters: dict[str, Any]
     channel: Channel
     deadline_at: datetime | None = None
+    fence_token: int | None = None
 
 
 class ActionPreview(BaseModel):

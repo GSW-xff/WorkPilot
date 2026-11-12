@@ -177,6 +177,9 @@ class AlembicMigrationTest(unittest.TestCase):
                     "planning_disposition",
                     "planning_reason",
                     "clarification_questions",
+                    "lease_owner",
+                    "lease_expires_at",
+                    "fence_token",
                 }.issubset(task_columns)
             )
 

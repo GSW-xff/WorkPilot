@@ -1,9 +1,15 @@
 from __future__ import annotations
 
-from temporalio import activity
+import asyncio
 
+from temporalio import activity
+from temporalio.exceptions import ApplicationError
+
+from workpilot.lease import LeaseLost
 from workpilot.runtime import WorkPilotService
 from workpilot.workflows.temporal import ApprovalCommand, TaskRef
+
+HEARTBEAT_INTERVAL_SECONDS = 5.0
 
 
 class TaskActivities:
@@ -13,7 +19,29 @@ class TaskActivities:
     @activity.defn(name="advance_task")
     async def advance_task(self, task: TaskRef) -> str:
         _heartbeat("advance.started", task)
-        result = await self.service.run(task.tenant_id, task.task_id)
+        stop = asyncio.Event()
+
+        async def keepalive() -> None:
+            while True:
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=HEARTBEAT_INTERVAL_SECONDS)
+                except TimeoutError:
+                    _heartbeat("advance.running", task)
+                    continue
+                return
+
+        beating = asyncio.create_task(keepalive())
+        try:
+            result = await self.service.run(task.tenant_id, task.task_id)
+        except LeaseLost as exc:
+            raise ApplicationError(
+                f"task lease lost, stopping stale worker: {exc}",
+                type="LeaseLost",
+                non_retryable=True,
+            ) from exc
+        finally:
+            stop.set()
+            await beating
         _heartbeat("advance.persisted", task, result.status.value)
         return result.status.value
 
