@@ -267,7 +267,7 @@ Executor 每轮只执行一个已就绪节点，首版不并行执行，以降�
 2. 检查依赖、权限和预算；
 3. 解析并校验工具参数；
 4. 计算风险等级和参数哈希；
-5. 如需审批，持久化审批请求并等待 Temporal Signal；
+5. 如需审批，持久化审批请求并通过 Workflow Update 同步接收审批结果（早期设计为 Signal，实现时改为 Update，保证审批失败对审批人可见）；
 6. 生成动作幂等键；
 7. 调用 API/MCP 或浏览器执行器；
 8. 将原始结果保存为 Artifact；
@@ -844,7 +844,7 @@ WorkPilot/
 ### 第 6 周：Temporal、重规划和恢复
 
 - 将运行循环迁移到 Temporal Workflow；
-- 支持暂停、取消、审批 Signal 和 Worker 重启恢复；
+- 支持暂停、取消（Signal）、人工审批（Update）和 Worker 重启恢复；
 - 实现失败分类和局部 Replanner；
 - 增加通道降级和不确定结果核对。
 
