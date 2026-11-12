@@ -214,7 +214,6 @@ Temporal、对象存储、OIDC、Secret Manager 和监控；镜像只允许 dige
 
 ## 7. 文档与证据入口
 
-- 简历数字与边界：`docs/resume-evidence.md`；
 - V3 架构与时序：`docs/architecture-v3.md`；
 - Agent 基线：`evals/reports/baseline-v1/`；
 - 当前支持域门基线：`evals/reports/intent-gated-v2/`；
@@ -225,7 +224,7 @@ Temporal、对象存储、OIDC、Secret Manager 和监控；镜像只允许 dige
 - Temporal/RLS/备份：`docs/reports/`；
 - SLO 与 Runbook：`docs/slo-and-alerts.md`、`docs/observability.md`；
 - 部署和容量：`docs/deployment-and-supply-chain.md`、`docs/performance.md`；
-- Demo 与用户研究：`docs/demo-runbook.md`、`docs/user-study-protocol.md`。
+- 用户研究：`docs/user-study-protocol.md`。
 
 这份补充方案以“事实、边界、下一步”作为主线。当前项目已经足够进入简历；后续投入应优先
 把现有强架构变成真实模型、真实 SaaS、真实 staging 和真实用户四条外部证据，而不是继续增加
