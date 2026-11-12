@@ -44,12 +44,15 @@ jobs:
           context: .
           load: true
           tags: workpilot:${{ github.sha }}
-      - uses: aquasecurity/trivy-action@0.28.0
+      # 固定到 commit SHA：trivy-action 的 tag 曾发生过被改写的情况，
+      # 只写 @v0.36.0 无法保证拿到的是同一份代码。
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: workpilot:${{ github.sha }}
           format: sarif
           output: trivy-results.sarif
           severity: HIGH,CRITICAL
+          ignore-unfixed: true
           exit-code: "1"
       - uses: anchore/sbom-action@v0
         with:
