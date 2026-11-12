@@ -40,6 +40,8 @@ from workpilot.model_gateway import (
 )
 from workpilot.models import TaskPlan
 from workpilot.planner import DemoPlanner, StructuredPlanner
+from workpilot.policy import PolicyEngine
+from workpilot.policy_profile import PolicyProfile, load_policy_profile
 from workpilot.repository import InMemoryTaskRepository, TaskNotFoundError, TaskRepository
 from workpilot.runtime import WorkPilotService
 from workpilot.telemetry import TELEMETRY, configure_otlp
@@ -133,16 +135,35 @@ def build_service(
 ) -> tuple[WorkPilotService, FakeEnterpriseAdapter]:
     settings = settings or Settings.from_env()
     adapter = FakeEnterpriseAdapter()
-    registry = CapabilityRegistry([adapter])
+    profile = resolve_policy_profile(settings)
+    registry = CapabilityRegistry(
+        [adapter],
+        risk_floor=profile.risk_floor,
+        denied=set(profile.denied_capabilities),
+    )
     planner = _build_planner(settings, registry)
     service = WorkPilotService(
         repository=repository or build_repository(settings),
         registry=registry,
         planner=planner,
-        max_steps=settings.max_steps,
-        allowed_recipient_domains=set(settings.allowed_recipient_domains),
+        policy=PolicyEngine(profile),
+        policy_profile=profile,
     )
     return service, adapter
+
+
+def resolve_policy_profile(settings: Settings) -> PolicyProfile:
+    """有策略文件就用文件；没有就沿用环境变量的默认值。"""
+
+    profile = load_policy_profile(settings.policy_path)
+    if settings.policy_path is None:
+        profile = profile.model_copy(
+            update={
+                "max_steps": settings.max_steps,
+                "allowed_recipient_domains": sorted(settings.allowed_recipient_domains),
+            }
+        ).validate_hard_limits()
+    return profile
 
 
 def _build_planner(settings: Settings, registry: CapabilityRegistry):
@@ -599,22 +620,33 @@ def create_app(
         body: ApprovalRequest,
         request: Request,
         context: Annotated[tuple[str, str], Depends(tenant_context)],
+        transport: Literal["update", "signal"] = "update",
     ):
+        """审批入口：transport=update 同步拿回执，transport=signal 只投递不等回执。"""
+
         tenant_id, user_id = context
         _require_role(request, "approver")
         task = service.repository.get(tenant_id, task_id)
         if settings.auth_mode == "oidc" and task.user_id == user_id:
             raise HTTPException(status_code=403, detail="task creator cannot approve own action")
         if app.state.temporal is not None:
-            await app.state.temporal.approve(
-                ApprovalCommand(
-                    tenant_id=tenant_id,
-                    task_id=task_id,
-                    step_id=body.step_id,
-                    parameter_hash=body.parameter_hash,
-                    approver=user_id,
-                )
+            command = ApprovalCommand(
+                tenant_id=tenant_id,
+                task_id=task_id,
+                step_id=body.step_id,
+                parameter_hash=body.parameter_hash,
+                approver=user_id,
             )
+            if transport == "signal":
+                await app.state.temporal.approve_by_signal(command)
+                return {
+                    "transport": "signal",
+                    "task": service.repository.get(tenant_id, task_id),
+                    "approval_error": await app.state.temporal.last_approval_error(
+                        tenant_id, task_id
+                    ),
+                }
+            await app.state.temporal.approve(command)
             return service.repository.get(tenant_id, task_id)
         try:
             return service.approve(tenant_id, task_id, body.step_id, body.parameter_hash, user_id)

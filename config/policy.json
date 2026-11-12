@@ -1,0 +1,12 @@
+{
+  "version": "policy-v1",
+  "max_steps": 20,
+  "lease_seconds": 15,
+  "allowed_recipient_domains": ["example.com"],
+  "risk_floor": {
+    "report.compose": "R1",
+    "task.create": "R2"
+  },
+  "denied_capabilities": [],
+  "require_approval_for": ["irreversible_write", "reversible_write"]
+}

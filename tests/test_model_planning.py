@@ -23,6 +23,7 @@ from workpilot.planner import (
     IntentGate,
     PlanningClarificationRequired,
     PlanningRequestRejected,
+    PlanRejected,
     StructuredPlanner,
     SupportedIntent,
     diff_plans,
@@ -127,18 +128,60 @@ class StructuredPlannerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, len(outcome.validation_errors))
         self.assertIn("rejected", gateway.calls[1][-1].content)
 
-    async def test_two_invalid_candidates_fall_back_safely(self) -> None:
+    async def test_two_invalid_candidates_request_replan_then_fall_back(self) -> None:
         gateway = DeterministicModelGateway(
-            responses=[{"goal": "bad", "steps": []}, {"goal": "still bad", "steps": []}]
+            responses=[
+                {"goal": "bad", "steps": []},
+                {"goal": "still bad", "steps": []},
+                {"goal": "replan attempt", "steps": []},
+            ]
         )
-        outcome = await self.planner(gateway).plan(
-            "prepare report",
-            "team@example.com",
-            metadata={"tenant_id": "demo", "task_id": "task", "trace_id": "trace"},
+        planner = self.planner(gateway)
+        metadata = {"tenant_id": "demo", "task_id": "task", "trace_id": "trace"}
+        with self.assertRaises(PlanRejected) as first:
+            await planner.plan("prepare report", "team@example.com", metadata=metadata)
+        self.assertIsNotNone(first.exception.candidate)
+        with self.assertRaises(PlanRejected):
+            await planner.replan(
+                "prepare report",
+                "team@example.com",
+                rejected=first.exception.candidate,
+                errors=first.exception.errors,
+                metadata=metadata,
+            )
+        outcome = planner.fallback_outcome(
+            "prepare report", "team@example.com", errors=first.exception.errors
         )
         self.assertTrue(outcome.used_fallback)
+        self.assertTrue(outcome.replanned)
         self.assertEqual(5, len(outcome.plan.steps))
         self.assertTrue(outcome.plan.planning.used_fallback)
+
+    async def test_rejected_candidate_is_replanned_and_passes(self) -> None:
+        gateway = DeterministicModelGateway(
+            responses=[
+                {"goal": "bad", "steps": []},
+                {"goal": "still bad", "steps": []},
+                self.valid,
+            ]
+        )
+        planner = self.planner(gateway)
+        metadata = {"tenant_id": "demo", "task_id": "task", "trace_id": "trace"}
+        with self.assertRaises(PlanRejected) as first:
+            await planner.plan("prepare report", "team@example.com", metadata=metadata)
+
+        outcome = await planner.replan(
+            "prepare report",
+            "team@example.com",
+            rejected=first.exception.candidate,
+            errors=first.exception.errors,
+            metadata=metadata,
+        )
+        self.assertFalse(outcome.used_fallback)
+        self.assertTrue(outcome.replanned)
+        self.assertEqual(len(self.valid["steps"]), len(outcome.plan.steps))
+        self.assertEqual("workpilot://planner/replan", gateway.calls[2][-1].source)
+        self.assertIn("rejected", gateway.calls[2][-1].content)
 
     async def test_model_budget_is_enforced_before_call(self) -> None:
         gateway = DeterministicModelGateway(responses=[self.valid])

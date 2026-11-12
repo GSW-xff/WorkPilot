@@ -297,12 +297,23 @@ class PlanningOutcome:
         model_calls: list[ModelCallRecord],
         validation_errors: list[str],
         used_fallback: bool,
+        replanned: bool = False,
     ) -> None:
         self.plan = plan
         self.context_snapshot = context_snapshot
         self.model_calls = model_calls
         self.validation_errors = validation_errors
         self.used_fallback = used_fallback
+        self.replanned = replanned
+
+
+class PlanRejected(ValueError):
+    """候选计划未通过确定性校验，交由上层决定是否回退重规划。"""
+
+    def __init__(self, errors: list[str], candidate: TaskPlan | None = None) -> None:
+        self.errors = errors
+        self.candidate = candidate
+        super().__init__("; ".join(errors))
 
 
 class StructuredPlanner:
@@ -352,6 +363,7 @@ class StructuredPlanner:
         messages = list(snapshot.messages)
         calls: list[ModelCallRecord] = []
         errors: list[str] = []
+        last_candidate: TaskPlan | None = None
         try:
             for attempt in range(2):
                 response = await self.gateway.generate_structured(
@@ -364,6 +376,7 @@ class StructuredPlanner:
                 calls.append(response.record)
                 try:
                     plan = TaskPlan.model_validate(response.output)
+                    last_candidate = plan
                     validate_plan(plan, set(self.fixed_risks), self.fixed_risks, self.max_steps)
                     plan.planning = PlanningMetadata(
                         prompt_version=self.model_policy.prompt_version,
@@ -397,21 +410,111 @@ class StructuredPlanner:
         except ModelGatewayError as exc:
             errors.append(f"{exc.error_type}: {exc}")
 
+        raise PlanRejected(errors, last_candidate)
+
+    async def replan(
+        self,
+        goal: str,
+        recipient: str,
+        *,
+        rejected: TaskPlan | None,
+        errors: list[str],
+        metadata: dict[str, str],
+        retrieved_context: list[ContextItem] | None = None,
+    ) -> PlanningOutcome:
+        """校验失败后的回退重规划：带上一版与失败原因再产一版修补计划。
+
+        与首次规划的区别只有两点：上下文里附上"上一版为什么不合格"，
+        以及要求保持步骤 id 稳定（便于事后 diff 与已完成步骤保护）。
+        """
+
+        tools = select_candidate_tools(goal, self.available_tools)
+        snapshot = self.context_builder.build(
+            goal=goal,
+            recipient=recipient,
+            tools=tools,
+            retrieved=retrieved_context,
+        )
+        messages = list(snapshot.messages)
+        rejected_summary = (
+            rejected.model_dump_json(indent=None)[:4_000] if rejected is not None else "n/a"
+        )
+        messages.append(
+            Message(
+                role="user",
+                source="workpilot://planner/replan",
+                trust="system",
+                content=(
+                    "The previous plan was rejected by deterministic validation. "
+                    "Replan: keep step ids stable where the step is still valid, fix only "
+                    "the rejected parts, and return a complete TaskPlan.\n"
+                    f"Rejected plan: {rejected_summary}\n"
+                    f"Validation errors: {'; '.join(errors)[:2_000]}"
+                ),
+            )
+        )
+        errors_out = list(errors)
+        try:
+            response = await self.gateway.generate_structured(
+                messages=messages,
+                output_schema=TaskPlan,
+                model_policy=self.model_policy,
+                budget=self.budget,
+                metadata=metadata,
+            )
+        except ModelGatewayError as exc:
+            errors_out.append(f"{exc.error_type}: {exc}")
+            raise PlanRejected(errors_out, rejected) from exc
+
+        calls = [response.record]
+        try:
+            plan = TaskPlan.model_validate(response.output)
+            validate_plan(plan, set(self.fixed_risks), self.fixed_risks, self.max_steps)
+        except (ValidationError, ValueError) as exc:
+            errors_out.append(str(exc))
+            raise PlanRejected(errors_out, rejected) from exc
+
+        plan.planning = PlanningMetadata(
+            prompt_version=self.model_policy.prompt_version,
+            schema_version=self.model_policy.schema_version,
+            validation_errors=list(errors),
+            model_calls=calls,
+        )
+        return PlanningOutcome(
+            plan=plan,
+            context_snapshot=snapshot.model_dump(mode="json"),
+            model_calls=calls,
+            validation_errors=list(errors),
+            used_fallback=False,
+            replanned=True,
+        )
+
+    def fallback_outcome(
+        self, goal: str, recipient: str, *, errors: list[str]
+    ) -> PlanningOutcome:
+        """重规划也没通过时的最后一道：人工写死的确定性模板。"""
+
         fallback = self.fallback.plan(goal, recipient)
         validate_plan(fallback, set(self.fixed_risks), self.fixed_risks, self.max_steps)
         fallback.planning = PlanningMetadata(
             prompt_version=self.model_policy.prompt_version,
             schema_version=self.model_policy.schema_version,
             used_fallback=True,
-            validation_errors=errors,
-            model_calls=calls,
+            validation_errors=list(errors),
         )
         return PlanningOutcome(
             plan=fallback,
-            context_snapshot=snapshot.model_dump(mode="json"),
-            model_calls=calls,
-            validation_errors=errors,
+            context_snapshot={
+                "messages": [],
+                "included_sources": [],
+                "omitted_sources": [],
+                "injection_markers": [],
+                "estimated_tokens": 0,
+            },
+            model_calls=[],
+            validation_errors=list(errors),
             used_fallback=True,
+            replanned=True,
         )
 
 

@@ -39,6 +39,17 @@ class TemporalTaskClient:
             command,
         )
 
+    async def approve_by_signal(self, command: ApprovalCommand) -> None:
+        """走信号通道提交审批：不等待回执，失败原因需另查 last_approval_error。"""
+
+        await self.handle(command.tenant_id, command.task_id).signal(
+            TaskWorkflow.submit_approval,
+            command,
+        )
+
+    async def last_approval_error(self, tenant_id: str, task_id: str) -> str | None:
+        return await self.handle(tenant_id, task_id).query(TaskWorkflow.last_approval_error)
+
     async def signal(self, tenant_id: str, task_id: str, signal: str) -> None:
         handle = self.handle(tenant_id, task_id)
         if signal == "pause":
