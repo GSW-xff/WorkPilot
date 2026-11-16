@@ -64,7 +64,7 @@ jobs:
           image: workpilot:${{ github.sha }}
           format: spdx-json
           output-file: workpilot.spdx.json
-      - uses: actions/attest-sbom@v2
+      - uses: actions/attest-sbom@v4
         if: github.event_name == 'push'
         with:
           subject-name: workpilot
